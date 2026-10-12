@@ -1,0 +1,324 @@
+{% load static rbac_tags %}
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}{% if active_dossier %}{{ active_dossier.nom }} — {% endif %}GéoFoncier{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Poppins:wght@500;600;700&display=swap"
+    rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+  <link rel="stylesheet" href="{% static 'css/geofoncier.css' %}">
+  <link rel="stylesheet" href="{% static 'css/slideover.css' %}">
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"></script>
+  {% block extra_css %}{% endblock %}
+</head>
+
+<body>
+
+  {% if user.is_authenticated and not page_auth %}
+  <!-- ===== SIDEBAR ===== -->
+  <div class="sidebar" id="sidebar">
+    <div class="sidebar-brand">
+      <div class="sidebar-brand-text">
+        <span>Géo<span style="color:#34d399; font-weight:800;">Foncier</span></span>
+      </div>
+    </div>
+
+    <nav class="sidebar-nav">
+      {% with cn=request.resolver_match.app_name urln=request.resolver_match.url_name|default:'' %}
+      {% if active_dossier %}
+      <!-- Section 1 : Dashboard du territoire actif -->
+      <div class="nav-section-label">Espace de Travail</div>
+      <a href="/{{ active_dossier.slug }}/dashboard/"
+        class="nav-link {% if 'dashboard' in request.path %}active{% endif %}">
+        <i class="bi bi-speedometer2"></i><span>Tableau de bord</span>
+      </a>
+
+      <!-- Arborescence dynamique des modules métier (Accordéon V2) -->
+      {% for group in workspace_nav %}
+      <div class="nav-accordion-group {% if group.is_expanded %}is-expanded{% endif %}">
+        <button type="button" class="nav-accordion-header {% if group.is_active %}active{% endif %}">
+          <div class="nav-accordion-title">
+            <i class="bi {{ group.icon }}"></i>
+            <span>{{ group.label }}</span>
+          </div>
+          <i class="bi bi-chevron-down nav-accordion-arrow"></i>
+        </button>
+        <div class="nav-accordion-content">
+          {% for sub in group.subitems %}
+          <a href="{{ sub.url }}" class="nav-sublink {% if sub.is_active %}active{% endif %}">
+            <i class="bi {{ sub.icon }}"></i>
+            <span>{{ sub.label }}</span>
+          </a>
+          {% endfor %}
+        </div>
+      </div>
+      {% endfor %}
+
+      <!-- Section Administration & Configuration du Dossier -->
+      {% user_can user 'dossier:assign_members' as can_manage_team %}
+      {% user_can user 'dossier:configure_modules' as can_configure_dossier %}
+      {% if user.is_superuser or active_membership.role == 'admin' or can_manage_team or can_configure_dossier %}
+      <div class="nav-section-label mt-2">Gestion Territoriale</div>
+      {% if user.is_superuser or active_membership.role == 'admin' or can_manage_team %}
+      <a href="/{{ active_dossier.slug }}/membres/"
+        class="nav-link {% if 'membres' in request.path %}active{% endif %}">
+        <i class="bi bi-people-fill"></i><span>Équipe & Affectations</span>
+      </a>
+      {% endif %}
+      {% if user.is_superuser or active_membership.role == 'admin' or can_configure_dossier %}
+      <a href="/{{ active_dossier.slug }}/parametres/"
+        class="nav-link {% if 'parametres' in request.path %}active{% endif %}">
+        <i class="bi bi-gear-fill"></i><span>Configuration Dossier</span>
+      </a>
+      {% endif %}
+      {% endif %}
+
+      {% else %}
+      <!-- Aucun dossier sélectionné -->
+      <div class="nav-section-label">Territoire</div>
+      <a href="{% url 'dossiers:list' %}"
+        class="nav-link {% if cn == 'dossiers' and urln == 'list' %}active{% endif %}">
+        <i class="bi bi-grid-fill"></i>
+        <span>
+          {% if user.is_superuser %}
+          Tous les Dossiers
+          {% else %}
+          Mes Territoires & Dossiers
+          {% endif %}
+        </span>
+      </a>
+      {% endif %}
+
+      <!-- Section Système & Gouvernance -->
+      {% user_can user 'users:view' as can_view_users %}
+      {% user_can user 'audit:view' as can_view_audit %}
+      {% if user.is_superuser or user.is_admin or can_view_users or can_view_audit %}
+      <div class="nav-section-label mt-3">Administration Système</div>
+      {% if user.is_superuser or user.is_admin or can_view_users %}
+      <a href="{% url 'accounts:users' %}" class="nav-link {% if 'users' in request.path %}active{% endif %}">
+        <i class="bi bi-person-gear"></i><span>Utilisateurs</span>
+      </a>
+      {% endif %}
+      {% if user.is_superuser or can_view_audit %}
+      <a href="{% url 'accounts:activity_log' %}" class="nav-link {% if 'activity' in request.path %}active{% endif %}">
+        <i class="bi bi-activity"></i><span>Journal d'activité</span>
+      </a>
+      {% endif %}
+      {% endif %}
+      {% endwith %}
+    </nav>
+  </div>
+
+  <!-- ===== MAIN WRAPPER ===== -->
+  <div class="main-wrapper" id="mainWrapper">
+    <!-- Topbar -->
+    <header class="topbar">
+      <div class="topbar-left">
+        <button class="btn sidebar-toggle d-inline-flex d-lg-none align-items-center justify-content-center"
+          id="sidebarToggle" aria-label="Menu de navigation">
+          <i class="bi bi-list fs-4"></i>
+        </button>
+        <!-- Sélecteur rapide de Territoire (Header Global) -->
+        <div class="dropdown dossier-header-selector ms-2">
+          <button class="btn btn-sm d-flex align-items-center gap-2 px-3 py-1 text-start rounded-pill" type="button"
+            data-bs-toggle="dropdown" aria-expanded="false"
+            style="background:#f8fafc; border:1px solid #cbd5e1; color:#1e293b;">
+            <i class="bi bi-folder2-open text-success fs-6"></i>
+            <div class="d-flex align-items-baseline gap-2">
+              <span class="fw-bold text-dark text-truncate" style="max-width: 240px; font-size: 13px;">
+                {% if active_dossier %}{{ active_dossier.nom }}{% else %}Sélectionner un Territoire{% endif %}
+              </span>
+            </div>
+            <i class="bi bi-chevron-expand text-muted small ms-1"></i>
+          </button>
+          <ul class="dropdown-menu shadow-sm border mt-1" style="min-width: 280px; font-size: 13px; z-index: 1060;">
+            <li>
+              <h6 class="dropdown-header text-uppercase text-muted fw-bold"
+                style="font-size: 10.5px; letter-spacing: 0.05em;">
+                Mes Territoires Rattachés
+              </h6>
+            </li>
+            {% for d in user_accessible_dossiers %}
+            <li>
+              <a class="dropdown-item d-flex justify-content-between align-items-center py-2 {% if active_dossier.id == d.id %}active bg-success text-white{% endif %}"
+                href="{% url 'dossiers:select' slug=d.slug %}">
+                <span class="text-truncate me-2">{{ d.nom }}</span>
+                {% if active_dossier.id == d.id %}<i class="bi bi-check2"></i>{% endif %}
+              </a>
+            </li>
+            {% empty %}
+            <li><span class="dropdown-item text-muted small">Aucun territoire disponible</span></li>
+            {% endfor %}
+            <li>
+              <hr class="dropdown-divider">
+            </li>
+            <li>
+              <a class="dropdown-item small d-flex align-items-center gap-2 py-2 text-success fw-semibold"
+                href="{% url 'dossiers:list' %}">
+                <i class="bi bi-grid-fill"></i> Galerie de tous les dossiers...
+              </a>
+            </li>
+          </ul>
+        </div>
+      </div>
+      <div class="topbar-right">
+        <!-- Dropdown Profil Utilisateur Moderne -->
+        <div class="dropdown">
+          <button class="btn user-btn" data-bs-toggle="dropdown" aria-expanded="false" id="userMenuButton"
+            title="{{ user.get_full_name|default:user.username }}">
+            <div class="user-avatar-sm">
+              {% if user.photo %}
+              <img src="{{ user.photo.url }}" alt="{{ user.username }}"
+                style="width:100%;height:100%;border-radius:50%;object-fit:cover;">
+              {% else %}
+              {{ user.first_name|default:user.username|first|upper }}
+              {% endif %}
+              <span class="user-status-dot" title="En ligne"></span>
+            </div>
+          </button>
+
+          <div class="dropdown-menu dropdown-menu-end user-dropdown-menu" aria-labelledby="userMenuButton">
+            <!-- En-tête Profil -->
+            <div class="user-dropdown-header">
+              <div>
+                <div class="fw-bold text-dark text-truncate" style="font-size:15.5px;">
+                  {{ user.get_full_name|default:user.username }}
+                </div>
+                <div class="text-muted small text-truncate" style="font-size:12px;">
+                  {{ user.email|default:user.username }}
+                </div>
+                <div>
+                  <span
+                    class="badge {% if user.is_superuser %}bg-danger{% elif user.is_admin %}bg-primary{% else %}bg-secondary{% endif %}"
+                    style="font-size:10px; font-weight:600; padding:3px 8px; border-radius:9999px;">
+                    <i
+                      class="bi {% if user.is_superuser %}bi-shield-lock-fill{% elif user.is_admin %}bi-shield-fill{% else %}bi-person-fill{% endif %} me-1"></i>
+                    {{ user.get_role_display }}
+                  </span>
+                </div>
+              </div>
+
+              {% if active_dossier %}
+              <!-- Contexte Espace Actif (Flex Column) -->
+              <div class="mt-2 p-2 rounded-3 bg-white border d-flex flex-column gap-1">
+                <div class="d-flex flex-column gap-1">
+                  <span class="text-muted"
+                    style="font-size:10px; text-transform:uppercase; letter-spacing:0.04em;">Espace Actif</span>
+                  <span class="badge bg-success-subtle text-success border border-success-subtle"
+                    style="font-size:10px;">
+                    {{ active_membership.get_role_display|default:"Connecté" }}
+                  </span>
+                </div>
+                <div class="fw-semibold text-dark small text-truncate w-100" title="{{ active_dossier.nom }}">
+                  {{ active_dossier.nom }}
+                </div>
+              </div>
+              {% endif %}
+            </div>
+
+            <!-- Liens de navigation profil -->
+            <div class="p-2 user-dropdown-link-container">
+              <a class="dropdown-item user-dropdown-item" href="{% url 'accounts:profile' %}">
+                <i class="bi bi-person-gear"></i>
+                <span>Mon profil & Sécurité</span>
+              </a>
+
+              {% if user.is_superuser or user.is_admin %}
+              <a class="dropdown-item user-dropdown-item" href="{% url 'accounts:users' %}">
+                <i class="bi bi-people"></i>
+                <span>Gestion des utilisateurs</span>
+              </a>
+              {% endif %}
+
+              {% if user.is_superuser or user.is_admin %}
+              <a class="dropdown-item user-dropdown-item" href="{% url 'accounts:activity_log' %}">
+                <i class="bi bi-shield-check"></i>
+                <span>Journal d'activité & Audit</span>
+              </a>
+              {% endif %}
+
+              <!-- Déconnexion -->
+              <div>
+                <form action="{% url 'accounts:logout' %}" method="post" class="m-0">
+                  {% csrf_token %}
+                  <button type="submit" class="dropdown-item user-dropdown-item danger-item">
+                    <i class="bi bi-box-arrow-right"></i>
+                    <span class="fw-semibold">Déconnexion</span>
+                  </button>
+                </form>
+              </div>
+            </div>
+
+
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <!-- Contenu principal -->
+    <main class="page-content {% block page_content_class %}{% endblock %}">
+
+      {% if messages %}
+      {% for msg in messages %}
+      <div class="alert alert-{{ msg.tags }} alert-dismissible fade show rounded-3 mb-3" role="alert">
+        <i
+          class="bi bi-{% if 'success' in msg.tags %}check-circle{% elif 'error' in msg.tags or 'danger' in msg.tags %}x-circle{% elif 'warning' in msg.tags %}exclamation-triangle{% else %}info-circle{% endif %} me-2"></i>
+        {{ msg }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+      </div>
+      {% endfor %}
+      {% endif %}
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+
+  {% else %}
+  <!-- Pages d'authentification -->
+  <div class="auth-page">
+    {% block auth_content %}{% endblock %}
+  </div>
+  {% endif %}
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  {% block extra_js_vendor %}{% endblock %}
+  <!-- Modules JavaScript GéoFoncier -->
+  <script src="{% static 'js/global.js' %}"></script>
+  <script src="{% static 'js/map.js' %}"></script>
+  <script src="{% static 'js/layers.js' %}"></script>
+  <script src="{% static 'js/search.js' %}"></script>
+  <script src="{% static 'js/charts.js' %}"></script>
+  <script src="{% static 'js/slideover.js' %}"></script>
+  {% block extra_js %}{% endblock %}
+
+  <script>
+    // Accordéon dynamique de la barre latérale (V2)
+    document.addEventListener('click', function (e) {
+      const header = e.target.closest('.nav-accordion-header');
+      if (!header) return;
+      e.preventDefault();
+      e.stopPropagation();
+
+      const group = header.closest('.nav-accordion-group');
+      if (!group) return;
+
+      const wasExpanded = group.classList.contains('is-expanded');
+
+      // Replier les autres groupes d'accordéon pour préserver l'espace visuel
+      document.querySelectorAll('.nav-accordion-group.is-expanded').forEach(function (other) {
+        if (other !== group) {
+          other.classList.remove('is-expanded');
+        }
+      });
+
+      group.classList.toggle('is-expanded', !wasExpanded);
+    });
+  </script>
+</body>
+
+</html>

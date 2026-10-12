@@ -1,0 +1,226 @@
+{% extends 'base.html' %}
+{% load crispy_forms_tags %}
+{% block title %}Mon profil{% endblock %}
+{% block breadcrumb %}<li class="breadcrumb-item active">Mon profil</li>{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/cropperjs@1.6.2/dist/cropper.min.css">
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title"><i class="bi bi-person-circle"></i> Mon profil</h1>
+    <p class="page-description">Gérez vos informations personnelles, votre photo et vos paramètres de connexion.</p>
+  </div>
+</div>
+
+<div class="row g-4">
+
+  <!-- Carte profil -->
+  <div class="col-md-4">
+    <div class="card text-center p-4">
+
+      <!-- Avatar cliquable pour changer la photo -->
+      <div class="avatar-wrapper mx-auto mb-3" id="avatarWrapper" title="Changer la photo">
+        {% if user.photo %}
+          <img src="{{ user.photo.url }}" alt="" class="profile-avatar" id="profileAvatarImg">
+        {% else %}
+          <div class="profile-avatar-initials" id="profileAvatarInitials">{{ user.username|first|upper }}</div>
+          <img src="" alt="" class="profile-avatar d-none" id="profileAvatarImg">
+        {% endif %}
+        <div class="avatar-change-btn"><i class="bi bi-camera-fill"></i></div>
+      </div>
+
+      <h5 class="fw-bold mb-1">{{ user.get_full_name|default:user.username }}</h5>
+      <p class="text-muted small mb-2">@{{ user.username }}</p>
+      <span class="badge bg-primary mb-3">{{ user.get_role_display }}</span>
+
+      <ul class="list-group list-group-flush text-start">
+        <li class="list-group-item d-flex justify-content-between px-0">
+          <span class="text-muted small"><i class="bi bi-envelope me-1"></i>Email</span>
+          <span class="small">{{ user.email|default:"—" }}</span>
+        </li>
+        <li class="list-group-item d-flex justify-content-between px-0">
+          <span class="text-muted small"><i class="bi bi-telephone me-1"></i>Téléphone</span>
+          <span class="small">{{ user.telephone|default:"—" }}</span>
+        </li>
+        <li class="list-group-item d-flex justify-content-between px-0">
+          <span class="text-muted small"><i class="bi bi-calendar me-1"></i>Inscrit le</span>
+          <span class="small">{{ user.date_joined|date:"d/m/Y" }}</span>
+        </li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- Formulaire de modification -->
+  <div class="col-md-8">
+    <div class="card">
+      <div class="card-header d-flex align-items-center gap-2">
+        <i class="bi bi-pencil-square text-primary"></i>
+        <span class="fw-semibold">Modifier mes informations</span>
+      </div>
+      <div class="card-body">
+        <form method="post" enctype="multipart/form-data" novalidate id="profileForm">
+          {% csrf_token %}
+          {% crispy form %}
+        </form>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ===== Modale de recadrage ===== -->
+<div class="modal fade" id="cropModal" tabindex="-1" data-bs-backdrop="static">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content">
+
+      <div class="modal-header border-0 pb-0">
+        <h5 class="modal-title fw-bold">
+          <i class="bi bi-crop me-2 text-primary"></i>Recadrer la photo de profil
+        </h5>
+        <button type="button" class="btn-close" id="cropCancelBtn"></button>
+      </div>
+
+      <div class="modal-body">
+        <div class="crop-container">
+          <img id="cropImage" src="" alt="Photo à recadrer">
+        </div>
+
+        <!-- Aperçu en temps réel -->
+        <div class="d-flex align-items-center gap-3 mt-3">
+          <div>
+            <p class="text-muted small mb-1 text-center">Aperçu</p>
+            <div class="crop-preview-wrap" id="cropPreview"></div>
+          </div>
+          <div class="text-muted small">
+            <p class="mb-1"><i class="bi bi-arrows-move me-1"></i>Faites glisser pour déplacer la zone</p>
+            <p class="mb-1"><i class="bi bi-zoom-in me-1"></i>Molette pour zoomer</p>
+            <p class="mb-0"><i class="bi bi-arrows-angle-expand me-1"></i>Tirez les coins pour redimensionner</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-footer border-0 pt-0">
+        <button type="button" class="btn btn-outline-secondary" id="cropCancelBtn2">
+          <i class="bi bi-x me-1"></i>Annuler
+        </button>
+        <button type="button" class="btn btn-primary" id="cropConfirmBtn">
+          <i class="bi bi-check-lg me-1"></i>Valider le recadrage
+        </button>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js_vendor %}
+<script src="https://cdn.jsdelivr.net/npm/cropperjs@1.6.2/dist/cropper.min.js"></script>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+  const fileInput      = document.getElementById('id_photo');
+  const avatarWrapper  = document.getElementById('avatarWrapper');
+  const avatarImg      = document.getElementById('profileAvatarImg');
+  const avatarInitials = document.getElementById('profileAvatarInitials');
+  const cropImageEl    = document.getElementById('cropImage');
+  const cropConfirmBtn = document.getElementById('cropConfirmBtn');
+  const cropModal      = new bootstrap.Modal(document.getElementById('cropModal'));
+
+  let cropper        = null;
+  let cropConfirmed  = false;
+
+  /* Clic sur l'avatar → ouvre le sélecteur de fichier */
+  avatarWrapper.addEventListener('click', function () {
+    fileInput.click();
+  });
+
+  /* Sélection d'un fichier → ouvre la modale de recadrage */
+  fileInput.addEventListener('change', function (e) {
+    const file = e.target.files[0];
+    if (!file || !file.type.startsWith('image/')) return;
+
+    cropConfirmed = false;
+    const reader  = new FileReader();
+    reader.onload = function (ev) {
+      cropImageEl.src = ev.target.result;
+      cropModal.show();
+    };
+    reader.readAsDataURL(file);
+  });
+
+  /* Initialiser Cropper.js quand la modale est visible */
+  document.getElementById('cropModal').addEventListener('shown.bs.modal', function () {
+    if (cropper) { cropper.destroy(); cropper = null; }
+    cropper = new Cropper(cropImageEl, {
+      aspectRatio: 1,
+      viewMode: 1,
+      dragMode: 'move',
+      autoCropArea: 0.85,
+      movable: true,
+      zoomable: true,
+      rotatable: false,
+      scalable: false,
+      cropBoxMovable: true,
+      cropBoxResizable: true,
+      highlight: false,
+      guides: true,
+      center: true,
+      preview: '#cropPreview',
+    });
+  });
+
+  /* Valider le recadrage */
+  cropConfirmBtn.addEventListener('click', function () {
+    if (!cropper) return;
+
+    const canvas = cropper.getCroppedCanvas({
+      width: 400,
+      height: 400,
+      imageSmoothingEnabled: true,
+      imageSmoothingQuality: 'high',
+    });
+
+    canvas.toBlob(function (blob) {
+      const originalName = fileInput.files[0] ? fileInput.files[0].name : 'photo.jpg';
+      const croppedFile  = new File([blob], originalName, { type: 'image/jpeg' });
+
+      /* Remplacer le fichier dans l'input */
+      const dt = new DataTransfer();
+      dt.items.add(croppedFile);
+      fileInput.files = dt.files;
+
+      /* Mettre à jour l'aperçu dans la carte profil */
+      const previewUrl = URL.createObjectURL(blob);
+      avatarImg.src = previewUrl;
+      avatarImg.classList.remove('d-none');
+      if (avatarInitials) avatarInitials.classList.add('d-none');
+
+      cropConfirmed = true;
+      cropModal.hide();
+    }, 'image/jpeg', 0.92);
+  });
+
+  /* Annuler → remettre l'input à zéro */
+  function cancelCrop() {
+    cropModal.hide();
+    if (!cropConfirmed) {
+      fileInput.value = '';
+    }
+  }
+
+  document.getElementById('cropCancelBtn').addEventListener('click', cancelCrop);
+  document.getElementById('cropCancelBtn2').addEventListener('click', cancelCrop);
+
+  /* Nettoyer Cropper quand la modale se ferme */
+  document.getElementById('cropModal').addEventListener('hidden.bs.modal', function () {
+    if (cropper) { cropper.destroy(); cropper = null; }
+  });
+})();
+</script>
+{% endblock %}

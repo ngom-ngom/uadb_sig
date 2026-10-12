@@ -8,7 +8,7 @@ d'une heure, sous Windows (plateforme de développement actuelle).
 | Outil | Version de référence | Remarque |
 |---|---|---|
 | Python | 3.11 | Le venv du projet utilise 3.11.9 |
-| PostgreSQL + PostGIS | PostgreSQL ≥ 14, PostGIS ≥ 3 | Base `uad_sig_db` par défaut |
+| PostgreSQL + PostGIS | PostgreSQL 17 (Alpine `postgres:17-alpine` ou `postgis/postgis:17-3.5-alpine`), PostGIS 3.5 | Base `uad_sig_db` par défaut. Requiert le support des extensions spatiales PostGIS. |
 | GDAL (wheel `osgeo`) | 3.11.x | Installé **dans le venv**, voir ci-dessous |
 | FFmpeg | facultatif | Enregistrement des flux vidéo du drone |
 | WebODM | facultatif | Traitement photogrammétrique (externe), en local sur `127.0.0.1:29800` |
@@ -89,7 +89,7 @@ La base est vide après l'installation. Dans l'ordre :
 | Routage global | `config/urls.py` |
 | Réglages (BD, GDAL, sessions de 30 min, e-mail console) | `config/settings.py` |
 | Gabarit commun, menu, notifications | `templates/base.html`, `commune/context_processors.py` |
-| Carte Leaflet partagée | `static/js/uad_sig.js`, `templates/cartographie/map.html` |
+| Carte Leaflet partagée | `static/js/geofoncier.js` (`map.js`, `layers.js`), `templates/cartographie/map.html` |
 | Rôles et permissions | `accounts/models.py` (propriétés `can_*`) |
 | API GeoJSON | `foncier/api_urls.py`, `foncier/api_views.py`, `foncier/serializers.py` |
 

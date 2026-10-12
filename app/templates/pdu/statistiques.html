@@ -1,0 +1,481 @@
+{% extends 'base.html' %}
+{% load dossier_tags %}
+{% block title %}Statistiques Foncières{% endblock %}
+{% block breadcrumb %}
+<li class="breadcrumb-item active">Statistiques</li>
+{% endblock %}
+
+{% block extra_js_vendor %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+{% endblock %}
+
+{% block content %}
+
+<!-- ===== EN-TÊTE ===== -->
+<div class="page-header">
+  <div>
+    <h1 class="page-title"><i class="bi bi-bar-chart-line"></i> Statistiques Foncières</h1>
+    <p class="page-description">Tableau de bord analytique sur l'occupation, la capacité constructible et l'évolution foncière de {{ active_dossier.nom|default:"l'espace territorial" }}.</p>
+  </div>
+</div>
+
+<!-- ===== KPI ROW 1 ===== -->
+<div class="stat-section-lbl">Indicateurs clés · {{ active_dossier.nom|default:"Territoire" }}</div>
+<!-- ===== KPI (Ruban horizontal scrollable à cartes fixes) ===== -->
+<div class="kpi-row-scroll">
+
+  <!-- 1. Superficie Totale (Bleu Primaire) -->
+  <div class="kpi-card kpi-card--primary">
+    <div class="kpi-card__header">
+      <span class="kpi-card__label">Superficie Totale</span>
+      <i class="bi bi-map kpi-card__icon"></i>
+    </div>
+    <div class="kpi-card__body">
+      <span class="kpi-card__value">{{ total_superficie }} ha</span>
+      <span class="kpi-card__badge kpi-card__badge--info">
+        {{ total_superficie_m2|floatformat:0 }} m²
+      </span>
+    </div>
+  </div>
+
+  <!-- 2. Espaces Libres (Vert Secondaire) -->
+  <div class="kpi-card kpi-card--secondary">
+    <div class="kpi-card__header">
+      <span class="kpi-card__label">{{ active_dossier|term:'zone_label,Espace'|capfirst }}s Libres</span>
+      <i class="bi bi-grid-3x3-gap kpi-card__icon"></i>
+    </div>
+    <div class="kpi-card__body">
+      <span class="kpi-card__value">{{ nb_libres }}</span>
+      <span class="kpi-card__badge kpi-card__badge--success">
+        {{ nb_occupes }} occupés
+      </span>
+    </div>
+  </div>
+
+  <!-- 3. Bâtiments Actifs (Ambre Warning) -->
+  <div class="kpi-card kpi-card--warning">
+    <div class="kpi-card__header">
+      <span class="kpi-card__label">{{ active_dossier|term:'bati_label,Bâtiment'|capfirst }}s Actifs</span>
+      <i class="bi bi-buildings kpi-card__icon"></i>
+    </div>
+    <div class="kpi-card__body">
+      <span class="kpi-card__value">{{ batiments_actifs }}</span>
+      <span class="kpi-card__badge kpi-card__badge--warning">
+        {{ densite_bat }} bât/ha
+      </span>
+    </div>
+  </div>
+
+  <!-- 4. Constructible Brut (Cyan Info) -->
+  <div class="kpi-card kpi-card--info">
+    <div class="kpi-card__header">
+      <span class="kpi-card__label">Constructible</span>
+      <i class="bi bi-rulers kpi-card__icon"></i>
+    </div>
+    <div class="kpi-card__body">
+      <span class="kpi-card__value">{{ sup_constructible_totale_ha }} ha</span>
+      <span class="kpi-card__badge kpi-card__badge--neutral">
+        Moy. {{ taux_moy_occupation }}%
+      </span>
+    </div>
+  </div>
+
+  <!-- 5. Constructible Nette (Variable selon taux d'engagement) -->
+  <div class="kpi-card {% if pct_engagee_nc < 60 %}kpi-card--secondary{% elif pct_engagee_nc < 85 %}kpi-card--warning{% else %}kpi-card--danger{% endif %}">
+    <div class="kpi-card__header">
+      <span class="kpi-card__label">Surface Nette</span>
+      <i class="bi bi-check2-circle kpi-card__icon"></i>
+    </div>
+    <div class="kpi-card__body">
+      <span class="kpi-card__value">{{ sup_nette_nc|floatformat:0 }} m²</span>
+      <span class="kpi-card__badge {% if pct_engagee_nc < 60 %}kpi-card__badge--success{% elif pct_engagee_nc < 85 %}kpi-card__badge--warning{% else %}kpi-card__badge--danger{% endif %}">
+        {{ pct_engagee_nc }}% engagé
+      </span>
+    </div>
+  </div>
+
+  <!-- 6. Demandes de Construction (Violet Gouvernance) -->
+  <div class="kpi-card kpi-card--purple">
+    <div class="kpi-card__header">
+      <span class="kpi-card__label">Demandes Bâti</span>
+      <i class="bi bi-clipboard2-data kpi-card__icon"></i>
+    </div>
+    <div class="kpi-card__body">
+      <span class="kpi-card__value">{{ total_constructions }}</span>
+      <span class="kpi-card__badge kpi-card__badge--neutral">
+        Historique
+      </span>
+    </div>
+  </div>
+
+</div>
+
+<!-- ===== OCCUPATION DU SOL ===== -->
+<div class="stat-section-lbl">Occupation du sol</div>
+<div class="row g-4 mb-4">
+
+  <!-- Répartition -->
+  <div class="col-lg-7">
+    <div class="card h-100">
+      <div class="card-header d-flex align-items-center justify-content-between">
+        <span><i class="bi bi-bar-chart-steps me-2 text-primary"></i>Répartition par type d'espace</span>
+        <span class="badge bg-light text-secondary border" style="font-size:11px;">{{ total_superficie }} ha total</span>
+      </div>
+      <div class="card-body">
+        {% if stats_enrichis %}
+        <div id="repRows">
+          {% for item in stats_enrichis %}
+          <div class="rep-row">
+            <div class="rep-type">
+              <span class="rep-dot" style="background:{{ item.couleur }};"></span>
+              <span class="rep-name">{{ item.label }}</span>
+            </div>
+            <div class="rep-bar-wrap">
+              <div class="rep-bar" data-width="{{ item.pourcentage|stringformat:'g' }}"
+                   style="width:0%;background:{{ item.couleur }};"></div>
+            </div>
+            <div class="rep-stats">
+              <span class="rep-pct">{{ item.pourcentage }}%</span>
+              <span class="rep-ha">{{ item.superficie_ha }} ha</span>
+              <span class="rep-cnt">{{ item.count }} espace{{ item.count|pluralize }}</span>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+
+        <!-- Résumé libre / occupé -->
+        <div class="mt-3 pt-3 border-top d-flex gap-3 flex-wrap">
+          <div style="font-size:12px; color:#64748b;">
+            <span class="fw-600" style="color:#16a34a;">{{ sup_libre_ha }} ha</span> libres ({{ taux_libre }}%)
+          </div>
+          <div style="font-size:12px; color:#64748b;">
+            <span class="fw-600" style="color:#ef4444;">{{ sup_occupee_ha }} ha</span> occupés ({{ taux_occupe }}%)
+          </div>
+          <div style="font-size:12px; color:#64748b;">
+            <span class="fw-600" style="color:#f59e0b;">{{ sup_reservee_ha }} ha</span> réservés ({{ taux_reserve }}%)
+          </div>
+        </div>
+        {% else %}
+        <div class="empty-state-sm">
+          <i class="bi bi-bar-chart"></i>
+          <p>Aucune donnée foncière disponible.</p>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Donut chart -->
+  <div class="col-lg-5">
+    <div class="card h-100">
+      <div class="card-header">
+        <i class="bi bi-pie-chart me-2 text-primary"></i>Superficie par type
+      </div>
+      <div class="card-body d-flex flex-column align-items-center justify-content-center">
+        {% if stats_enrichis %}
+        <div style="height:200px; width:100%; max-width:240px;">
+          <canvas id="statsChart"></canvas>
+        </div>
+        <div class="chart-legend w-100 mt-2">
+          {% for item in stats_enrichis %}
+          <div class="legend-row">
+            <div class="legend-row-left">
+              <span class="legend-dot" style="background:{{ item.couleur }};"></span>
+              <span class="legend-lbl">{{ item.label }}</span>
+            </div>
+            <span class="legend-val">{{ item.superficie_ha }} ha</span>
+          </div>
+          {% endfor %}
+        </div>
+        {% else %}
+        <div class="empty-state-sm">
+          <i class="bi bi-pie-chart"></i>
+          <p>Aucune donnée à afficher.</p>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ===== CAPACITÉ CONSTRUCTIBLE ===== -->
+<div class="stat-section-lbl">Capacité constructible</div>
+<div class="row g-3 mb-4">
+
+  <div class="col-md-4">
+    <div class="cap-tile" style="background:#eff6ff; border:1px solid #bfdbfe;">
+      <div class="cap-tile-icon" style="background:#1E3A8A;">
+        <i class="bi bi-rulers" style="color:#fff; font-size:18px;"></i>
+      </div>
+      <div>
+        <div class="cap-tile-val" style="color:#1E3A8A;">{{ sup_constructible_totale|floatformat:0 }} m²</div>
+        <div class="cap-tile-sub">Superficie constructible totale</div>
+        <div class="cap-tile-ha">{{ sup_constructible_totale_ha }} ha · taux moy. {{ taux_moy_occupation }}%</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-md-4">
+    <div class="cap-tile" style="background:#fef3c7; border:1px solid #fde68a;">
+      <div class="cap-tile-icon" style="background:#d97706;">
+        <i class="bi bi-geo-fill" style="color:#fff; font-size:18px;"></i>
+      </div>
+      <div>
+        <div class="cap-tile-val" style="color:#d97706;">{{ sup_engagee_nc|floatformat:0 }} m²</div>
+        <div class="cap-tile-sub">Superficie engagée (constructions)</div>
+        <div class="cap-tile-ha">{{ pct_engagee_nc }}% de la capacité totale</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-md-4">
+    <div class="cap-tile"
+         style="background:{% if pct_engagee_nc < 60 %}#dcfce7{% elif pct_engagee_nc < 85 %}#fef3c7{% else %}#fee2e2{% endif %};
+                border:1px solid {% if pct_engagee_nc < 60 %}#bbf7d0{% elif pct_engagee_nc < 85 %}#fde68a{% else %}#fecaca{% endif %};">
+      <div class="cap-tile-icon"
+           style="background:{% if pct_engagee_nc < 60 %}#16a34a{% elif pct_engagee_nc < 85 %}#d97706{% else %}#dc2626{% endif %};">
+        <i class="bi bi-check-circle-fill" style="color:#fff; font-size:18px;"></i>
+      </div>
+      <div>
+        <div class="cap-tile-val"
+             style="color:{% if pct_engagee_nc < 60 %}#16a34a{% elif pct_engagee_nc < 85 %}#d97706{% else %}#dc2626{% endif %};">
+          {{ sup_nette_nc|floatformat:0 }} m²
+        </div>
+        <div class="cap-tile-sub">Superficie nette disponible</div>
+        <div class="cap-tile-ha">
+          {% if pct_engagee_nc < 60 %}Bonne capacité résiduelle
+          {% elif pct_engagee_nc < 85 %}Capacité limitée — prioriser
+          {% else %}Capacité quasi-saturée — vigilance{% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Barre de progression constructible -->
+  <div class="col-12">
+    <div class="card">
+      <div class="card-body py-3">
+        <div class="d-flex justify-content-between align-items-center mb-2" style="font-size:12px; color:#64748b;">
+          <span><strong>Utilisation de la capacité constructible</strong></span>
+          <span>{{ pct_engagee_nc }}% engagé · {{ sup_nette_nc|floatformat:0 }} m² disponibles</span>
+        </div>
+        <div style="height:14px; background:#f1f5f9; border-radius:8px; overflow:hidden;">
+          <div id="capBar"
+               style="width:0%; height:100%; border-radius:8px; transition:width .9s cubic-bezier(.4,0,.2,1);
+                      background:{% if pct_engagee_nc < 60 %}linear-gradient(90deg,#16a34a,#22c55e)
+                                 {% elif pct_engagee_nc < 85 %}linear-gradient(90deg,#d97706,#f59e0b)
+                                 {% else %}linear-gradient(90deg,#dc2626,#ef4444){% endif %};"
+               data-width="{{ pct_engagee_nc|stringformat:'g' }}">
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ===== PIPELINE CONSTRUCTIONS ===== -->
+<div class="stat-section-lbl">Constructions — Pipeline et types</div>
+<div class="row g-4 mb-4">
+
+  <!-- Pipeline par statut -->
+  <div class="col-lg-6">
+    <div class="card h-100">
+      <div class="card-header d-flex align-items-center justify-content-between">
+        <span><i class="bi bi-kanban me-2 text-primary"></i>Demandes par statut</span>
+        <span class="badge bg-light text-secondary border" style="font-size:11px;">
+          {{ total_constructions }} demande{{ total_constructions|pluralize }}
+        </span>
+      </div>
+      <div class="card-body">
+        {% if pipeline_items %}
+        <div class="d-flex flex-column gap-2">
+          {% for item in pipeline_items %}
+          {% if item.count > 0 %}
+          <div class="pip-item">
+            <div class="d-flex align-items-center gap-10" style="gap:10px;">
+              <span class="pip-badge"
+                    style="background:{{ item.color_bg }}; color:{{ item.color_text }};">
+                {{ item.label }}
+              </span>
+            </div>
+            <div class="d-flex align-items-center gap-3">
+              <div class="text-end">
+                <div class="pip-count" style="color:{{ item.color_text }};">{{ item.count }}</div>
+                <div class="pip-info">{{ item.pct }}% des demandes</div>
+                {% if item.superficie > 0 %}
+                <div class="pip-pct">{{ item.superficie|floatformat:0 }} m²</div>
+                {% endif %}
+              </div>
+            </div>
+          </div>
+          {% endif %}
+          {% endfor %}
+        </div>
+        {% if not total_constructions %}
+        <div class="empty-state-sm">
+          <i class="bi bi-clipboard2"></i>
+          <p>Aucune demande de construction enregistrée.</p>
+        </div>
+        {% endif %}
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Top types de construction -->
+  <div class="col-lg-6">
+    <div class="card h-100">
+      <div class="card-header">
+        <i class="bi bi-list-ol me-2 text-primary"></i>Types de construction les plus demandés
+      </div>
+      <div class="card-body">
+        {% if types_demandes %}
+        <div id="typeRows">
+          {% for t in types_demandes %}
+          <div class="type-bar-row">
+            <div class="type-bar-label">
+              <span>{{ t.type_construction }}</span>
+              <span style="color:#94a3b8; font-weight:400;">{{ t.count }} demande{{ t.count|pluralize }} · {{ t.superficie|floatformat:0 }} m²</span>
+            </div>
+            <div class="type-bar-wrap">
+              <div class="type-bar" data-width="{{ t.pct|stringformat:'g' }}" style="width:0%;"></div>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+        {% else %}
+        <div class="empty-state-sm">
+          <i class="bi bi-list-task"></i>
+          <p>Aucun type de construction enregistré.</p>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ===== HISTORIQUE DES TRAVAUX ===== -->
+{% if historique_stats or histo_chart_labels != '[]' %}
+<div class="stat-section-lbl">Historique des travaux</div>
+<div class="row g-4 mb-4">
+
+  <!-- Bar chart évolution -->
+  <div class="col-lg-7">
+    <div class="card h-100">
+      <div class="card-header">
+        <i class="bi bi-graph-up-arrow me-2 text-primary"></i>Évolution des interventions par année
+      </div>
+      <div class="card-body">
+        <div style="height:240px;">
+          <canvas id="histoChart"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Table des interventions -->
+  <div class="col-lg-5">
+    <div class="card h-100">
+      <div class="card-header d-flex align-items-center justify-content-between">
+        <span><i class="bi bi-clock-history me-2 text-primary"></i>Détail des interventions</span>
+        <span class="badge bg-light text-secondary border" style="font-size:11px;">
+          {{ historique_stats|length }} enreg.
+        </span>
+      </div>
+      <div class="table-responsive" style="max-height:280px; overflow-y:auto;">
+        <table class="table mb-0">
+          <thead>
+            <tr>
+              <th>Année</th>
+              <th>Type</th>
+              <th class="text-center">Nb</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for h in historique_stats %}
+            <tr>
+              <td><strong style="color:#1e293b;">{{ h.annee }}</strong></td>
+              <td>
+                <span class="hist-badge hist-{{ h.type_travaux }}">
+                  {% if h.type_travaux == 'construction' %}<i class="bi bi-hammer me-1"></i>
+                  {% elif h.type_travaux == 'renovation' %}<i class="bi bi-tools me-1"></i>
+                  {% elif h.type_travaux == 'extension' %}<i class="bi bi-arrows-expand me-1"></i>
+                  {% else %}<i class="bi bi-trash me-1"></i>{% endif %}
+                  {{ h.label_travaux }}
+                </span>
+              </td>
+              <td class="text-center">
+                <strong style="font-size:15px;">{{ h.count }}</strong>
+              </td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="3" class="text-center text-muted py-3">Aucun historique disponible.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+  /* ---- Barres animées répartition ---- */
+  requestAnimationFrame(function () {
+    document.querySelectorAll('.rep-bar[data-width], .type-bar[data-width]').forEach(function (el) {
+      el.style.width = el.dataset.width + '%';
+    });
+    var capBar = document.getElementById('capBar');
+    if (capBar) capBar.style.width = capBar.dataset.width + '%';
+  });
+
+  /* ---- Donut occupation du sol ---- */
+  var labels = {{ chart_labels|safe }};
+  var data   = {{ chart_data|safe }};
+  var colors = {{ chart_colors|safe }};
+  if (labels.length && typeof createDonutChart === 'function') {
+    createDonutChart('statsChart', labels, data, colors);
+  }
+
+  /* ---- Bar chart historique ---- */
+  var histoLabels = {{ histo_chart_labels|safe }};
+  var histoData   = {{ histo_chart_data|safe }};
+  if (histoLabels.length && document.getElementById('histoChart')) {
+    if (typeof createBarChart === 'function') {
+      createBarChart('histoChart', histoLabels, histoData, '#1E3A8A');
+    } else {
+      /* fallback direct Chart.js */
+      new Chart(document.getElementById('histoChart'), {
+        type: 'bar',
+        data: {
+          labels: histoLabels,
+          datasets: [{
+            label: 'Interventions',
+            data: histoData,
+            backgroundColor: '#3b82f6',
+            borderRadius: 6,
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            y: { beginAtZero: true, grid: { color: '#f1f5f9' }, ticks: { color: '#64748b' } },
+            x: { grid: { display: false }, ticks: { color: '#64748b' } }
+          }
+        }
+      });
+    }
+  }
+})();
+</script>
+{% endblock %}

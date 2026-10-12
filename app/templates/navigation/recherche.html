@@ -1,0 +1,374 @@
+{% extends 'base.html' %}
+{% block title %}Recherche & Navigation{% endblock %}
+{% block breadcrumb %}<li class="breadcrumb-item active">Recherche & Navigation</li>{% endblock %}
+
+{% block page_content_class %}page-content-carto{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="anonymous" referrerpolicy="no-referrer">
+{% endblock %}
+
+{% block content %}
+
+<!-- ===== EN-TÊTE 50/50 STANDARD ===== -->
+<div class="carto-header">
+  <div class="carto-header-left">
+    <h1 class="page-title mb-0"><i class="bi bi-search"></i> Recherche &amp; Navigation</h1>
+    <p class="page-description mb-0">
+      Exploration multicritère et localisation spatiale du patrimoine foncier et bâti{% if active_dossier %} · <strong>{{ active_dossier.nom }}</strong>{% endif %}.
+    </p>
+  </div>
+  <div class="carto-header-actions">
+    {% if has_filter %}
+    <a href="{% url 'navigation:recherche' %}" class="btn btn-sm btn-outline-danger">
+      <i class="bi bi-x-circle me-1"></i>Effacer les filtres
+    </a>
+    {% endif %}
+    <a href="{% url 'territoire:cartographie' %}" class="btn btn-sm btn-outline-primary">
+      <i class="bi bi-map me-1"></i>Carte complète
+    </a>
+  </div>
+</div>
+
+<!-- ===== LAYOUT SPLIT-SCREEN PLEIN ÉCRAN (0 SCROLL GLOBAL) ===== -->
+<div class="detail-layout-split">
+
+  <!-- Volet Gauche : Moteur de Recherche & Liste de Résultats (Scroll interne) -->
+  <div class="detail-sidebar-panel" style="width: 520px; max-width: 50%; padding: 16px;">
+
+    <!-- Formulaire de recherche compact -->
+    <form method="get" action="{% url 'navigation:recherche' %}" id="searchForm" class="mb-3">
+      <div class="input-group shadow-sm rounded-3 overflow-hidden border">
+        <span class="input-group-text bg-white border-0 text-muted ps-3">
+          <i class="bi bi-search"></i>
+        </span>
+        <input type="text"
+               name="q"
+               id="searchInput"
+               class="form-control border-0 px-2 py-2"
+               placeholder="Rechercher par nom, code, usage..."
+               value="{{ q }}"
+               autocomplete="off"
+               style="font-size: 13.5px; box-shadow: none;">
+        <button type="submit" class="btn btn-primary px-3 fw-semibold" style="font-size: 13px;">
+          Rechercher
+        </button>
+      </div>
+
+      <!-- Préservation des filtres actifs -->
+      {% if filter_type %}<input type="hidden" name="filter_type" value="{{ filter_type }}">{% endif %}
+      {% if type_espace %}<input type="hidden" name="type_espace" value="{{ type_espace }}">{% endif %}
+      {% if statut %}<input type="hidden" name="statut" value="{{ statut }}">{% endif %}
+      {% if sort != 'pertinence' %}<input type="hidden" name="sort" value="{{ sort }}">{% endif %}
+      <div id="searchSuggestions" class="position-relative"></div>
+    </form>
+
+    <!-- Onglets Type (Tout / Bâtiments / Espaces) -->
+    <div class="d-flex align-items-center justify-content-between gap-2 mb-3 pb-2 border-bottom">
+      <div class="btn-group btn-group-sm" role="group">
+        <a href="?q={{ q }}&sort={{ sort }}"
+           class="btn btn-outline-secondary {% if not filter_type %}active fw-bold{% endif %}">
+          Tout {% if nb_resultats_total %}<span class="badge bg-secondary-subtle text-secondary ms-1">{{ nb_resultats_total }}</span>{% endif %}
+        </a>
+        <a href="?q={{ q }}&filter_type=batiment&sort={{ sort }}{% if statut %}&statut={{ statut }}{% endif %}"
+           class="btn btn-outline-secondary {% if filter_type == 'batiment' %}active fw-bold{% endif %}">
+          <i class="bi bi-buildings me-1"></i>Bâtis ({{ nb_total_batiments }})
+        </a>
+        <a href="?q={{ q }}&filter_type=espace&sort={{ sort }}{% if type_espace %}&type_espace={{ type_espace }}{% endif %}"
+           class="btn btn-outline-secondary {% if filter_type == 'espace' %}active fw-bold{% endif %}">
+          <i class="bi bi-bounding-box me-1"></i>Zones ({{ nb_total_espaces }})
+        </a>
+      </div>
+
+      <!-- Tri -->
+      <form method="get" class="d-inline-flex align-items-center gap-1" id="filterSortForm">
+        <input type="hidden" name="q" value="{{ q }}">
+        {% if filter_type %}<input type="hidden" name="filter_type" value="{{ filter_type }}">{% endif %}
+        {% if type_espace %}<input type="hidden" name="type_espace" value="{{ type_espace }}">{% endif %}
+        {% if statut %}<input type="hidden" name="statut" value="{{ statut }}">{% endif %}
+        <select name="sort" class="form-select form-select-sm py-1" style="font-size: 11.5px; width: auto;" onchange="this.form.submit()">
+          <option value="pertinence" {% if sort == 'pertinence' %}selected{% endif %}>Pertinence</option>
+          <option value="nom" {% if sort == 'nom' %}selected{% endif %}>Nom A→Z</option>
+          <option value="-superficie" {% if sort == '-superficie' %}selected{% endif %}>Superficie ↓</option>
+        </select>
+      </form>
+    </div>
+
+    <!-- Conteneur des Résultats avec Scroll Interne -->
+    {% if has_filter %}
+      {% if nb_resultats > 0 %}
+      <div class="results-panel" style="flex: 1 1 auto; overflow-y: auto;">
+
+        <!-- Section Bâtiments -->
+        {% if batiments %}
+        <div class="sec-hdr d-flex align-items-center justify-content-between mb-2">
+          <div class="sec-title fw-bold text-dark" style="font-size: 12.5px;">
+            <i class="bi bi-buildings text-primary me-1"></i> Bâtiments ({{ batiments|length }})
+          </div>
+          {% if nb_total_batiments > batiments|length %}
+          <span class="badge bg-light text-muted border" style="font-size: 10px;">{{ nb_total_batiments }} au total</span>
+          {% endif %}
+        </div>
+
+        {% for b in batiments %}
+        <div class="srch-item"
+             data-lat="{% if b.geometrie %}{{ b.geometrie.centroid.y }}{% endif %}"
+             data-lng="{% if b.geometrie %}{{ b.geometrie.centroid.x }}{% endif %}"
+             data-nom="{{ b.nom }}"
+             data-type="batiment"
+             data-pk="{{ b.pk }}">
+          <div class="srch-icon" style="background:#eff6ff;">
+            <i class="bi bi-buildings" style="color:#1E3A8A;"></i>
+          </div>
+          <div class="srch-body">
+            <div class="srch-name">{{ b.nom }}</div>
+            <div class="srch-meta">
+              <code>{{ b.code }}</code>
+              {% if b.get_type_bati_display %}<span>{{ b.get_type_bati_display }}</span>{% endif %}
+              {% if b.superficie_m2 %}<span>{{ b.superficie_m2|floatformat:0 }} m²</span>{% endif %}
+              {% if b.statut_occupation %}
+              <span class="badge border" style="background-color: {{ b.couleur_statut }}15; color: {{ b.couleur_statut }}; font-size: 10.5px;">
+                {{ b.get_statut_occupation_display }}
+              </span>
+              {% endif %}
+            </div>
+          </div>
+          <div class="srch-actions">
+            <a href="{% url 'territoire:batiment_detail' b.pk %}"
+               class="btn btn-icon btn-outline-primary btn-sm"
+               title="Voir la fiche"
+               onclick="event.stopPropagation();">
+              <i class="bi bi-arrow-right"></i>
+            </a>
+          </div>
+        </div>
+        {% endfor %}
+        {% endif %}
+
+        <!-- Section Subdivisions / Espaces -->
+        {% if espaces %}
+        <div class="sec-hdr d-flex align-items-center justify-content-between mb-2 mt-3">
+          <div class="sec-title fw-bold text-dark" style="font-size: 12.5px;">
+            <i class="bi bi-bounding-box text-success me-1"></i> Subdivisions ({{ espaces|length }})
+          </div>
+          {% if nb_total_espaces > espaces|length %}
+          <span class="badge bg-light text-muted border" style="font-size: 10px;">{{ nb_total_espaces }} au total</span>
+          {% endif %}
+        </div>
+
+        {% for e in espaces %}
+        <div class="srch-item"
+             data-lat="{% if e.geometrie %}{{ e.geometrie.centroid.y }}{% endif %}"
+             data-lng="{% if e.geometrie %}{{ e.geometrie.centroid.x }}{% endif %}"
+             data-nom="{{ e.nom }}"
+             data-type="espace"
+             data-pk="{{ e.pk }}">
+          <div class="srch-icon" style="background:#f0fdf4;">
+            <i class="bi bi-bounding-box" style="color:#16a34a;"></i>
+          </div>
+          <div class="srch-body">
+            <div class="srch-name">{{ e.nom }}</div>
+            <div class="srch-meta">
+              <code>{{ e.code|default:"—" }}</code>
+              <span class="badge bg-light text-dark border">{{ e.get_type_zone_display }}</span>
+              {% if e.superficie_ha %}<span>{{ e.superficie_ha|floatformat:2 }} ha</span>{% endif %}
+            </div>
+          </div>
+          <div class="srch-actions">
+            <a href="{% url 'territoire:zone_detail' e.pk %}"
+               class="btn btn-icon btn-outline-success btn-sm"
+               title="Voir la fiche"
+               onclick="event.stopPropagation();">
+              <i class="bi bi-arrow-right"></i>
+            </a>
+          </div>
+        </div>
+        {% endfor %}
+        {% endif %}
+
+      </div><!-- /results-panel -->
+
+      {% else %}
+      <!-- Aucun résultat -->
+      <div class="card border-0 shadow-sm rounded-4 p-4 text-center">
+        <i class="bi bi-search text-muted opacity-50 fs-1 mb-2"></i>
+        <h6 class="fw-bold text-dark">Aucun résultat trouvé</h6>
+        <p class="text-muted small mb-3">Aucun élément ne correspond à votre recherche «&nbsp;{{ q }}&nbsp;».</p>
+        <a href="{% url 'navigation:recherche' %}" class="btn btn-outline-primary btn-sm mx-auto">
+          <i class="bi bi-x-circle me-1"></i>Réinitialiser les filtres
+        </a>
+      </div>
+      {% endif %}
+
+    {% else %}
+      <!-- État initial : Suggestions & Guide -->
+      <div class="card border-0 shadow-sm rounded-4 p-3">
+        <div class="d-flex align-items-center gap-2 mb-2 text-primary fw-bold" style="font-size: 13px;">
+          <i class="bi bi-lightbulb"></i>
+          <span>Guide d'exploration spatiale</span>
+        </div>
+        <p class="text-muted small mb-3">Saisissez un mot-clé ou sélectionnez une catégorie pour explorer et localiser le patrimoine sur la carte.</p>
+
+        <div class="d-flex flex-column gap-2">
+          <a href="?q=&filter_type=batiment" class="d-flex align-items-center justify-content-between p-2 rounded-3 bg-light text-decoration-none text-dark hover-bg-primary-subtle">
+            <div class="d-flex align-items-center gap-2">
+              <i class="bi bi-buildings text-primary"></i>
+              <span class="small fw-semibold">Tous les édifices &amp; concessions</span>
+            </div>
+            <span class="badge bg-white text-dark border">{{ nb_total_batiments }}</span>
+          </a>
+
+          <a href="?q=&filter_type=espace" class="d-flex align-items-center justify-content-between p-2 rounded-3 bg-light text-decoration-none text-dark hover-bg-success-subtle">
+            <div class="d-flex align-items-center gap-2">
+              <i class="bi bi-bounding-box text-success"></i>
+              <span class="small fw-semibold">Toutes les subdivisions territoriales</span>
+            </div>
+            <span class="badge bg-white text-dark border">{{ nb_total_espaces }}</span>
+          </a>
+        </div>
+      </div>
+    {% endif %}
+
+  </div><!-- /detail-sidebar-panel -->
+
+  <!-- Volet Droit : Carte Immersive SIG (100% Hauteur/Largeur) -->
+  <div class="detail-map-panel">
+    <div id="result-map"></div>
+
+    <!-- Panneau flottant pour l'élément sélectionné -->
+    <div class="map-info-panel" id="mapInfoPanel">
+      <div class="d-flex align-items-center gap-2">
+        <i class="bi bi-geo-alt-fill text-primary fs-5"></i>
+        <span id="mapInfoText" class="fw-bold text-dark"></span>
+      </div>
+      <a id="mapInfoLink" href="#" class="btn btn-sm btn-primary ms-auto" style="font-size: 12px;">
+        Consulter la fiche <i class="bi bi-arrow-right ms-1"></i>
+      </a>
+    </div>
+
+    <!-- Légende carto discrète -->
+    <div class="detail-map-legend">
+      <i class="bi bi-cursor-fill text-primary me-1"></i> Cliquez sur un élément pour le localiser
+    </div>
+  </div><!-- /detail-map-panel -->
+
+</div><!-- /detail-layout-split -->
+
+{% endblock %}
+
+{% block extra_js_vendor %}
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  /* Initialisation de la carte Leaflet */
+  var map = L.map('result-map', { zoomControl: false }).setView([14.6928, -17.4467], 14);
+  L.control.zoom({ position: 'bottomright' }).addTo(map);
+
+  var osm = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    referrerPolicy: 'strict-origin-when-cross-origin',
+    attribution: '&copy; OpenStreetMap',
+    maxZoom: 28,
+    maxNativeZoom: 19
+  }).addTo(map);
+
+  var satellite = L.tileLayer(
+    'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+    attribution: 'Tiles &copy; Esri',
+    maxZoom: 28,
+    maxNativeZoom: 19
+  });
+
+  L.control.layers(
+    { 'Plan OSM': osm, 'Satellite': satellite },
+    {},
+    { position: 'topright', collapsed: true }
+  ).addTo(map);
+
+  var selectedItem = null;
+  var resultLayer = null;
+  var layerByPk = {};
+
+  var resultGeoJSON = {{ resultats_geojson|safe }};
+
+  if (resultGeoJSON && resultGeoJSON.features && resultGeoJSON.features.length > 0) {
+    resultLayer = L.geoJSON(resultGeoJSON, {
+      style: function (feature) {
+        var p = feature.properties;
+        var color = p.type === 'batiment' ? '#1E3A8A' : (p.couleur || '#16A34A');
+        return {
+          color: '#ffffff',
+          fillColor: color,
+          fillOpacity: 0.65,
+          weight: 2
+        };
+      },
+      onEachFeature: function (feature, layer) {
+        var p = feature.properties;
+        layer.bindPopup(
+          '<div style="font-size:13px; font-weight:700; margin-bottom:4px;">' + p.nom + '</div>' +
+          '<code style="font-size:11px; background:#f1f5f9; padding:1px 6px; border-radius:4px;">' + p.code + '</code>' +
+          '<br><a href="' + p.detail_url + '" style="display:inline-block; margin-top:8px; font-size:12px; font-weight:600; color:#1E3A8A;">' +
+          'Voir la fiche <i class="bi bi-arrow-right"></i></a>',
+          { maxWidth: 240 }
+        );
+        layerByPk[String(p.pk)] = layer;
+      }
+    }).addTo(map);
+
+    try {
+      map.fitBounds(resultLayer.getBounds(), { padding: [50, 50], maxZoom: 18 });
+    } catch(e) {}
+
+    if (resultGeoJSON.features.length === 1) {
+      var onlyLayer = layerByPk[String(resultGeoJSON.features[0].properties.pk)];
+      if (onlyLayer) onlyLayer.openPopup();
+    }
+  }
+
+  /* Clic sur un item de la liste de résultats */
+  document.querySelectorAll('.srch-item').forEach(function (item) {
+    item.addEventListener('click', function () {
+      if (selectedItem) selectedItem.classList.remove('selected');
+      this.classList.add('selected');
+      selectedItem = this;
+
+      var pk = String(this.dataset.pk);
+      var layer = layerByPk[pk];
+
+      if (layer) {
+        if (resultLayer) resultLayer.resetStyle();
+        layer.setStyle({ weight: 4, color: '#fbbf24', fillOpacity: 0.85 });
+        layer.openPopup();
+        try {
+          map.fitBounds(layer.getBounds(), { padding: [60, 60], maxZoom: 18 });
+        } catch(e) {}
+      }
+
+      /* Panel info flottant */
+      var panel = document.getElementById('mapInfoPanel');
+      var text = document.getElementById('mapInfoText');
+      var link = document.getElementById('mapInfoLink');
+      if (panel && text && link) {
+        text.textContent = this.dataset.nom;
+        var slug = "{{ active_dossier.slug|default:'' }}";
+        var urlPrefix = slug ? '/' + slug : '';
+        link.href = (this.dataset.type === 'batiment' ? urlPrefix + '/territoire/batiments/' : urlPrefix + '/territoire/zones/') + pk + '/';
+        panel.classList.add('show');
+      }
+
+      this.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    });
+  });
+
+  function invalidate() {
+    if (map) map.invalidateSize();
+  }
+  setTimeout(invalidate, 150);
+  setTimeout(invalidate, 400);
+  window.addEventListener('resize', invalidate);
+});
+</script>
+{% endblock %}

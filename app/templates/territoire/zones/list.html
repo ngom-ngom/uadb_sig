@@ -1,0 +1,618 @@
+{% extends 'base.html' %}
+{% load crispy_forms_tags %}
+{% block title %}Espaces Fonciers — {{ active_dossier.nom|default:"Territoire" }}{% endblock %}
+{% block breadcrumb %}
+<li class="breadcrumb-item"><a href="/{{ active_dossier.slug }}/dashboard/">{{ active_dossier.nom|default:"Territoire" }}</a></li>
+<li class="breadcrumb-item active">Espaces & Zones</li>
+{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="anonymous" referrerpolicy="no-referrer">
+<link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css" crossorigin="anonymous" referrerpolicy="no-referrer">
+{% endblock %}
+
+
+
+{% block content %}
+
+<!-- ===== EN-TÊTE DE PAGE ===== -->
+<div class="page-header d-flex flex-wrap justify-content-between align-items-center gap-3 mb-4">
+  <div>
+    <div class="d-flex align-items-center gap-2 mb-1">
+      <span class="badge bg-primary-subtle text-primary border border-primary-subtle fw-semibold" style="font-size: 11px;">
+        <i class="bi bi-geo-alt me-1"></i>{{ active_dossier.nom|default:"Territoire actif" }}
+      </span>
+      <span class="badge bg-light text-secondary border" style="font-size: 11px;">
+        {{ page_obj.paginator.count }} subdivision{{ page_obj.paginator.count|pluralize }}
+      </span>
+    </div>
+    <h1 class="page-title mb-1"><i class="bi bi-grid-3x3-gap text-primary me-2"></i> Espaces & Subdivisions Foncières</h1>
+    <p class="page-description text-muted mb-0">Zonages d'aménagement, délimitations territoriales, réserves foncières et secteurs cadastraux.</p>
+  </div>
+  <div class="d-flex align-items-center gap-2">
+    <a href="{% url 'territoire:cartographie' %}" class="btn btn-outline-secondary d-flex align-items-center gap-1 shadow-sm">
+      <i class="bi bi-map"></i>
+      <span class="d-none d-sm-inline">Vue cartographique</span>
+    </a>
+    {% if user.is_domaine_foncier or user.is_admin %}
+    <button type="button" class="btn btn-primary d-flex align-items-center gap-2 shadow-sm" data-bs-toggle="modal" data-bs-target="#modal-espace-create">
+      <i class="bi bi-plus-lg"></i>
+      <span>Nouvelle subdivision</span>
+    </button>
+    {% endif %}
+  </div>
+</div>
+
+<!-- ===== KPI (Ruban horizontal scrollable à cartes fixes) ===== -->
+<div class="kpi-row-scroll">
+
+  <!-- 1. Subdivisions Répertoriées (Bleu Primaire) -->
+  <div class="kpi-card kpi-card--primary">
+    <div class="kpi-card__header">
+      <span class="kpi-card__label">Subdivisions</span>
+      <i class="bi bi-grid-3x3-gap kpi-card__icon"></i>
+    </div>
+    <div class="kpi-card__body">
+      <span class="kpi-card__value">{{ page_obj.paginator.count }}</span>
+      <span class="kpi-card__badge kpi-card__badge--neutral">
+        Répertoriées
+      </span>
+    </div>
+  </div>
+
+  <!-- 2. Unités Bâties Recensées (Vert Secondaire) -->
+  <div class="kpi-card kpi-card--secondary">
+    <div class="kpi-card__header">
+      <span class="kpi-card__label">Unités Bâties</span>
+      <i class="bi bi-buildings kpi-card__icon"></i>
+    </div>
+    <div class="kpi-card__body">
+      <span class="kpi-card__value">{{ total_unites_baties|default:0 }}</span>
+      <span class="kpi-card__badge kpi-card__badge--success">
+        Recensées
+      </span>
+    </div>
+  </div>
+
+  <!-- 3. Superficie Dossier (Cyan Info) -->
+  <div class="kpi-card kpi-card--info">
+    <div class="kpi-card__header">
+      <span class="kpi-card__label">Superficie Dossier</span>
+      <i class="bi bi-map kpi-card__icon"></i>
+    </div>
+    <div class="kpi-card__body">
+      <span class="kpi-card__value">{{ active_dossier.superficie_ha|default:"—" }} ha</span>
+      <span class="kpi-card__badge kpi-card__badge--info">
+        {{ active_dossier.superficie_m2|default:0|floatformat:0 }} m²
+      </span>
+    </div>
+  </div>
+
+  <!-- 4. Projection Spatiale (Violet Gouvernance/SIG) -->
+  <div class="kpi-card kpi-card--purple">
+    <div class="kpi-card__header">
+      <span class="kpi-card__label">Projection Spatiale</span>
+      <i class="bi bi-compass kpi-card__icon"></i>
+    </div>
+    <div class="kpi-card__body">
+      <span class="kpi-card__value">EPSG:{{ active_dossier.srid_projection|default:32628 }}</span>
+      <span class="kpi-card__badge kpi-card__badge--neutral">
+        UTM métrique
+      </span>
+    </div>
+  </div>
+
+</div>
+
+<!-- ===== BARRE DE FILTRES STICKY (Desktop & Tablette) ===== -->
+<div class="filter-bar-sticky d-none d-md-block">
+  <form method="get" class="d-flex flex-wrap align-items-center gap-2 m-0 w-100" id="filterFormDesktop">
+    <input type="hidden" name="sort" value="{{ sort }}">
+    
+    <!-- Champ de recherche épuré avec icône intégrée -->
+    <div class="filter-search-wrapper">
+      <i class="bi bi-search filter-search-icon"></i>
+      <input type="text" name="q" class="form-control form-control-sm filter-search-input"
+             placeholder="Nom ou code…" value="{{ q }}" autocomplete="off">
+      {% if q %}
+      <button type="button" class="filter-search-clear" title="Effacer la recherche">
+        <i class="bi bi-x"></i>
+      </button>
+      {% endif %}
+    </div>
+
+    <select name="type_zone" class="form-select form-select-sm" style="max-width: 170px;">
+      <option value="">Tous les zonages</option>
+      {% for t_key, t_label in types_zone %}
+      <option value="{{ t_key }}" {% if type_zone == t_key %}selected{% endif %}>{{ t_label }}</option>
+      {% endfor %}
+    </select>
+
+    <select name="statut" class="form-select form-select-sm" style="max-width: 160px;">
+      <option value="">Tous les statuts</option>
+      {% for s_key, s_label in statuts %}
+      <option value="{{ s_key }}" {% if statut == s_key %}selected{% endif %}>{{ s_label }}</option>
+      {% endfor %}
+    </select>
+
+    {% if q or type_zone or statut %}
+    <a href="{% url 'territoire:zones' %}" class="btn btn-sm btn-outline-secondary btn-filter-reset" title="Réinitialiser les filtres">
+      <i class="bi bi-arrow-counterclockwise me-1"></i>Réinitialiser
+    </a>
+    {% endif %}
+  </form>
+</div>
+
+<!-- ===== BOUTON FLOTTANT FILTRES (Mobile uniquement) ===== -->
+<div class="fab-filter-mobile d-md-none">
+  <button type="button" class="btn fab-filter-btn" data-bs-toggle="offcanvas" data-bs-target="#offcanvasZonesFilters" aria-controls="offcanvasZonesFilters">
+    <i class="bi bi-funnel-fill"></i>
+    {% if q or type_zone or statut %}
+    <span class="badge-filter-count">!</span>
+    {% endif %}
+  </button>
+</div>
+
+<!-- ===== TIROIR DE FILTRES OFFCANVAS (Mobile) ===== -->
+<div class="offcanvas offcanvas-bottom rounded-top-4 d-md-none" tabindex="-1" id="offcanvasZonesFilters" aria-labelledby="offcanvasZonesFiltersLabel" style="height: auto; max-height: 85vh;">
+  <div class="offcanvas-header border-bottom py-3">
+    <h5 class="offcanvas-title fs-6 fw-bold text-dark d-flex align-items-center gap-2" id="offcanvasZonesFiltersLabel">
+      <i class="bi bi-funnel-fill text-primary"></i> Filtrer les espaces & zones
+    </h5>
+    <button type="button" class="btn-close shadow-none" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+  </div>
+  <div class="offcanvas-body p-4">
+    <form method="get" class="d-flex flex-column gap-3" id="filterFormMobile">
+      <input type="hidden" name="sort" value="{{ sort }}">
+      <div>
+        <label class="form-label small fw-semibold text-muted mb-1">Recherche textuelle</label>
+        <div class="filter-search-wrapper w-100" style="max-width: 100%;">
+          <i class="bi bi-search filter-search-icon"></i>
+          <input type="text" name="q" class="form-control filter-search-input" placeholder="Nom, code subdivision..." value="{{ q }}">
+          {% if q %}
+          <button type="button" class="filter-search-clear" title="Effacer la recherche">
+            <i class="bi bi-x"></i>
+          </button>
+          {% endif %}
+        </div>
+      </div>
+      <div>
+        <label class="form-label small fw-semibold text-muted mb-1">Nature de zonage</label>
+        <select name="type_zone" class="form-select">
+          <option value="">Tous les zonages</option>
+          {% for t_key, t_label in types_zone %}
+          <option value="{{ t_key }}" {% if type_zone == t_key %}selected{% endif %}>{{ t_label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="form-label small fw-semibold text-muted mb-1">Statut d'aménagement</label>
+        <select name="statut" class="form-select">
+          <option value="">Tous les statuts</option>
+          {% for s_key, s_label in statuts %}
+          <option value="{{ s_key }}" {% if statut == s_key %}selected{% endif %}>{{ s_label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="d-flex gap-2 pt-2">
+        <button type="submit" class="btn btn-primary flex-grow-1 shadow-sm py-2">
+          <i class="bi bi-check-lg me-1"></i> Appliquer les filtres
+        </button>
+        {% if q or type_zone or statut %}
+        <a href="{% url 'territoire:zones' %}" class="btn btn-outline-secondary py-2">
+          <i class="bi bi-arrow-counterclockwise"></i>
+        </a>
+        {% endif %}
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ===== TABLE CARD ===== -->
+<div class="card border-0 shadow-sm rounded-4">
+
+  <!-- En-tête épuré -->
+  <div class="table-card-header d-flex justify-content-between align-items-center">
+    <div class="table-card-title m-0">
+      <i class="bi bi-table text-primary me-2"></i>
+      <span>Liste des espaces fonciers</span>
+      <span class="count-pill ms-2">{{ page_obj.paginator.count }} résultat{{ page_obj.paginator.count|pluralize }}</span>
+    </div>
+    {% if q or type_zone or statut %}
+    <span class="badge bg-light text-primary border small d-none d-sm-inline-flex align-items-center gap-1">
+      <i class="bi bi-funnel-fill"></i> Filtres actifs
+    </span>
+    {% endif %}
+  </div>
+
+  <!-- Tableau -->
+  <div class="table-responsive">
+    <table class="table table-uad mb-0">
+      <thead>
+        <tr>
+          <!-- Code -->
+          <th>
+            <a href="?q={{ q }}&type_zone={{ type_zone }}&statut={{ statut }}&sort={% if sort == 'code' %}-code{% else %}code{% endif %}"
+              class="{% if sort == 'code' or sort == '-code' %}sort-active{% endif %}">
+              Code <i
+                class="bi bi-arrow-{% if sort == 'code' %}up{% elif sort == '-code' %}down{% else %}up-down{% endif %} sort-icon"></i>
+            </a>
+          </th>
+          <!-- Nom -->
+          <th>
+            <a href="?q={{ q }}&type_zone={{ type_zone }}&statut={{ statut }}&sort={% if sort == 'nom' %}-nom{% else %}nom{% endif %}"
+              class="{% if sort == 'nom' or sort == '-nom' %}sort-active{% endif %}">
+              Nom <i
+                class="bi bi-arrow-{% if sort == 'nom' %}up{% elif sort == '-nom' %}down{% else %}up-down{% endif %} sort-icon"></i>
+            </a>
+          </th>
+          <th>Nature</th>
+          <th>Statut</th>
+          <!-- Superficie -->
+          <th>
+            <a href="?q={{ q }}&type_zone={{ type_zone }}&statut={{ statut }}&sort={% if sort == 'superficie_m2' %}-superficie_m2{% else %}superficie_m2{% endif %}"
+              class="{% if sort == 'superficie_m2' or sort == '-superficie_m2' %}sort-active{% endif %}">
+              Superficie <i
+                class="bi bi-arrow-{% if sort == 'superficie_m2' %}up{% elif sort == '-superficie_m2' %}down{% else %}up-down{% endif %} sort-icon"></i>
+            </a>
+          </th>
+          <th>Unités bâties</th>
+          <th>Référent</th>
+          <th class="text-center">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for esp in page_obj %}
+        <tr class="clickable-row"
+            data-nom="{{ esp.nom }}"
+            data-code="{{ esp.code }}"
+            data-type="{{ esp.get_type_zone_display }}"
+            data-type-code="{{ esp.type_zone }}"
+            data-statut="{{ esp.get_statut_display }}"
+            data-statut-code="{{ esp.statut }}"
+            data-superficie="{% if esp.superficie_m2 %}{{ esp.superficie_m2|floatformat:0 }} m² ({{ esp.superficie_ha|floatformat:2 }} ha){% else %}—{% endif %}"
+            data-batiments="{{ esp.nb_unites_baties|default:0 }}"
+            data-surface-batie="{% if esp.surface_batie_m2 %}{{ esp.surface_batie_m2|floatformat:0 }} m²{% else %}0 m²{% endif %}"
+            data-population="{{ esp.population_estimee|default:'—' }}"
+            data-responsable="{{ esp.responsable_nom|default:'Non assigné' }}"
+            data-telephone="{{ esp.responsable_telephone|default:'—' }}"
+            data-description="{{ esp.description|default:'Aucune note enregistrée' }}"
+            data-detail-url="{% url 'territoire:zone_detail' esp.pk %}"
+            data-update-url="{% url 'territoire:zone_update' esp.pk %}"
+            data-delete-url="{% url 'territoire:zone_delete' esp.pk %}">
+
+          <!-- Code -->
+          <td>
+            <code style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:5px;
+                         padding:2px 8px; font-size:11.5px; color:#475569;">{{ esp.code|default:"—" }}</code>
+          </td>
+
+          <!-- Nom -->
+          <td>
+            <span class="fw-semibold text-dark" style="font-size:13.5px;">{{ esp.nom }}</span>
+            {% if esp.description %}
+            <div class="text-muted"
+              style="font-size:11px; margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:220px;">
+              {{ esp.description }}
+            </div>
+            {% endif %}
+          </td>
+
+          <!-- Nature / Type -->
+          <td>
+            <span class="badge bg-light text-dark border">
+              <i class="bi bi-bounding-box-circles me-1 text-primary"></i>
+              {{ esp.get_type_zone_display }}
+            </span>
+          </td>
+
+          <!-- Statut -->
+          <td>
+            {% if esp.statut == 'actif' %}
+            <span class="badge bg-success-subtle text-success border border-success-subtle">
+              <i class="bi bi-check-circle-fill me-1"></i>Actif
+            </span>
+            {% elif esp.statut == 'en_etude' %}
+            <span class="badge bg-warning-subtle text-warning border border-warning-subtle">
+              <i class="bi bi-clock-fill me-1"></i>En étude
+            </span>
+            {% else %}
+            <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle">
+              <i class="bi bi-archive-fill me-1"></i>Archivé
+            </span>
+            {% endif %}
+          </td>
+
+          <!-- Superficie -->
+          <td>
+            {% if esp.superficie_m2 %}
+            <span class="sup-val">{{ esp.superficie_m2|floatformat:0 }} m²</span>
+            <span class="sup-ha">{{ esp.superficie_ha|floatformat:2 }} ha</span>
+            {% else %}<span class="text-muted">—</span>{% endif %}
+          </td>
+
+          <!-- Unités Bâties -->
+          <td>
+            <div class="d-flex align-items-center gap-2">
+              <span class="fw-semibold text-dark">{{ esp.nb_unites_baties|default:0 }}</span>
+              <span class="text-muted" style="font-size:11px;">unité{{ esp.nb_unites_baties|pluralize }}</span>
+            </div>
+            {% if esp.surface_batie_m2 %}
+            <div class="text-muted" style="font-size:10.5px;">
+              {{ esp.surface_batie_m2|floatformat:0 }} m² d'emprise
+            </div>
+            {% endif %}
+          </td>
+
+          <!-- Référent -->
+          <td>
+            {% if esp.responsable_nom %}
+            <div class="fw-semibold text-dark" style="font-size:12.5px;">{{ esp.responsable_nom }}</div>
+            {% if esp.responsable_telephone %}
+            <div class="text-muted" style="font-size:11px;">{{ esp.responsable_telephone }}</div>
+            {% endif %}
+            {% else %}
+            <span class="text-muted" style="font-size:12px;">—</span>
+            {% endif %}
+          </td>
+
+          <!-- Actions -->
+          <td class="text-center" onclick="event.stopPropagation();">
+            <div class="d-flex gap-1 justify-content-center">
+              <a href="{% url 'territoire:zone_detail' esp.pk %}" class="btn btn-icon btn-outline-info btn-sm"
+                data-bs-toggle="tooltip" title="Fiche complète">
+                <i class="bi bi-eye"></i>
+              </a>
+              {% if user.is_domaine_foncier or user.is_admin %}
+              <a href="{% url 'territoire:zone_update' esp.pk %}" class="btn btn-icon btn-outline-primary btn-sm"
+                data-bs-toggle="tooltip" title="Modifier">
+                <i class="bi bi-pencil"></i>
+              </a>
+              <a href="{% url 'territoire:zone_delete' esp.pk %}" class="btn btn-icon btn-outline-danger btn-sm"
+                data-bs-toggle="tooltip" title="Supprimer">
+                <i class="bi bi-trash"></i>
+              </a>
+              {% endif %}
+            </div>
+          </td>
+
+        </tr>
+        {% empty %}
+        <tr>
+          <td colspan="8">
+            <div class="empty-state">
+              <i class="bi bi-inbox"></i>
+              <p>Aucune subdivision trouvée{% if q %} pour « {{ q }} »{% endif %}{% if type_zone %} avec ce zonage{% endif %}.
+              </p>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Pagination -->
+  {% if page_obj.has_other_pages %}
+  <div class="card-footer bg-transparent d-flex justify-content-between align-items-center py-3 px-4">
+    <small class="text-muted">
+      Page <strong>{{ page_obj.number }}</strong> / {{ page_obj.paginator.num_pages }}
+      &nbsp;·&nbsp; {{ page_obj.paginator.count }} subdivision{{ page_obj.paginator.count|pluralize }}
+    </small>
+    <nav>
+      <ul class="pagination pagination-sm mb-0">
+        {% if page_obj.has_previous %}
+        <li class="page-item">
+          <a class="page-link"
+            href="?page={{ page_obj.previous_page_number }}&q={{ q }}&type_zone={{ type_zone }}&statut={{ statut }}&sort={{ sort }}">
+            <i class="bi bi-chevron-left" style="font-size:10px;"></i>
+          </a>
+        </li>
+        {% endif %}
+        {% for num in page_obj.paginator.page_range %}
+        <li class="page-item {% if page_obj.number == num %}active{% endif %}">
+          <a class="page-link" href="?page={{ num }}&q={{ q }}&type_zone={{ type_zone }}&statut={{ statut }}&sort={{ sort }}">{{ num }}</a>
+        </li>
+        {% endfor %}
+        {% if page_obj.has_next %}
+        <li class="page-item">
+          <a class="page-link"
+            href="?page={{ page_obj.next_page_number }}&q={{ q }}&type_zone={{ type_zone }}&statut={{ statut }}&sort={{ sort }}">
+            <i class="bi bi-chevron-right" style="font-size:10px;"></i>
+          </a>
+        </li>
+        {% endif %}
+      </ul>
+    </nav>
+  </div>
+  {% endif %}
+
+</div>
+
+<!-- =========================================================================
+     MODALE DE CRÉATION DIRECTE (Zero-Page Create)
+     ========================================================================= -->
+{% if form %}
+<div class="modal fade" id="modal-espace-create" tabindex="-1" aria-labelledby="modalEspaceCreateLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
+    <div class="modal-content border-0 shadow-lg rounded-4">
+      <div class="modal-header border-bottom py-3 px-4 bg-light">
+        <div class="d-flex align-items-center gap-2">
+          <i class="bi bi-bounding-box text-primary fs-5"></i>
+          <h5 class="modal-title fw-bold text-dark" id="modalEspaceCreateLabel">Ajouter une Subdivision Territoriale</h5>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fermer"></button>
+      </div>
+
+      <form method="post" action="{% url 'territoire:zone_create' %}">
+        {% csrf_token %}
+        <div class="modal-body p-4">
+          <div class="alert alert-info py-2 px-3 small rounded-3 mb-3 d-flex align-items-center gap-2">
+            <i class="bi bi-info-circle-fill fs-5"></i>
+            <div>Cette zone sera rattachée au territoire actif <strong>{{ active_dossier.nom }}</strong>. La superficie UTM 28N/29N sera calculée automatiquement lors de l'enregistrement.</div>
+          </div>
+
+          <!-- Widget Sélecteur d'Emprise Immersif Plein Écran -->
+          <div class="emprise-picker-widget" id="empriseWidgetZone">
+            <div class="emprise-picker-widget-left">
+              <div class="emprise-picker-icon">
+                <i class="bi bi-bounding-box"></i>
+              </div>
+              <div>
+                <div class="emprise-picker-label">Emprise spatiale (SIG WGS 84)</div>
+                <div class="emprise-picker-status" id="empriseStatusZone">Aucun tracé cartographique</div>
+              </div>
+            </div>
+            <button type="button" class="btn btn-outline-primary btn-sm d-flex align-items-center gap-1" id="btnOpenMapPickerZone">
+              <i class="bi bi-map"></i>
+              <span id="empriseBtnTextZone">Tracer sur la carte</span>
+            </button>
+          </div>
+
+          {% crispy form %}
+        </div>
+
+        <div class="modal-footer border-top py-3 px-4 bg-light">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Annuler</button>
+          <button type="submit" class="btn btn-primary px-4">
+            <i class="bi bi-check-lg me-1"></i> Enregistrer la subdivision
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{% include 'components/modal_map_picker.html' %}
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script src="/static/js/map_picker.js"></script>
+<script src="/static/js/slideover.js"></script>
+<script src="/static/js/filter_manager.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  SlideOver.bindTable('.table-uad', function (row) {
+    const d = row.dataset;
+
+    const badgeHtml = `<span class="badge bg-primary-subtle text-primary border">${d.type}</span>`;
+
+    const bodyHtml = `
+      <div class="slideover-card">
+        <div class="slideover-section-title">Métriques Spatiales & Statut</div>
+        <div class="slideover-kv-row">
+          <span class="slideover-kv-key">Code Répertoire</span>
+          <span class="slideover-kv-val fw-bold">${d.code || '—'}</span>
+        </div>
+        <div class="slideover-kv-row">
+          <span class="slideover-kv-key">Nature zonage</span>
+          <span class="slideover-kv-val">${d.type}</span>
+        </div>
+        <div class="slideover-kv-row">
+          <span class="slideover-kv-key">Statut</span>
+          <span class="slideover-kv-val fw-semibold">${d.statut}</span>
+        </div>
+        <div class="slideover-kv-row">
+          <span class="slideover-kv-key">Superficie calculée</span>
+          <span class="slideover-kv-val text-primary fw-bold">${d.superficie}</span>
+        </div>
+      </div>
+
+      <div class="slideover-card">
+        <div class="slideover-section-title">Occupation & Recensement</div>
+        <div class="slideover-kv-row">
+          <span class="slideover-kv-key">Unités bâties</span>
+          <span class="slideover-kv-val fw-bold">${d.batiments} unité(s)</span>
+        </div>
+        <div class="slideover-kv-row">
+          <span class="slideover-kv-key">Emprise bâtie</span>
+          <span class="slideover-kv-val">${d.surfaceBatie}</span>
+        </div>
+        <div class="slideover-kv-row">
+          <span class="slideover-kv-key">Population estimée</span>
+          <span class="slideover-kv-val">${d.population}</span>
+        </div>
+      </div>
+
+      <div class="slideover-card">
+        <div class="slideover-section-title">Gouvernance Locale</div>
+        <div class="slideover-kv-row">
+          <span class="slideover-kv-key">Responsable / Référent</span>
+          <span class="slideover-kv-val fw-bold">${d.responsable}</span>
+        </div>
+        <div class="slideover-kv-row">
+          <span class="slideover-kv-key">Téléphone</span>
+          <span class="slideover-kv-val">${d.telephone}</span>
+        </div>
+      </div>
+
+      <div class="slideover-card">
+        <div class="slideover-section-title">Description</div>
+        <p class="text-muted small mb-0" style="white-space: pre-wrap;">${d.description}</p>
+      </div>
+    `;
+
+    const footerHtml = `
+      <div class="d-flex gap-2 w-100 justify-content-between align-items-center">
+        <a href="${d.detailUrl}" class="btn btn-sm btn-outline-info">
+          <i class="bi bi-eye me-1"></i> Fiche complète
+        </a>
+        <div class="d-flex gap-2">
+          {% if user.is_domaine_foncier or user.is_admin %}
+          <a href="${d.deleteUrl}" class="btn btn-sm btn-outline-danger" onclick="return confirm('Confirmez-vous la suppression de cette subdivision ?');">
+            <i class="bi bi-trash me-1"></i> Supprimer
+          </a>
+          <a href="${d.updateUrl}" class="btn btn-sm btn-outline-primary">
+            <i class="bi bi-pencil me-1"></i> Modifier
+          </a>
+          {% endif %}
+          <button type="button" class="btn btn-sm btn-secondary" onclick="SlideOver.close();">Fermer</button>
+        </div>
+      </div>
+    `;
+
+    return {
+      title: d.nom,
+      badgeHtml: badgeHtml,
+      bodyHtml: bodyHtml,
+      footerHtml: footerHtml
+    };
+  });
+
+  // Initialisation du contrôleur réactif de filtres
+  FilterManager.init({
+    desktopFormSelector: '#filterFormDesktop',
+    mobileFormSelector: '#filterFormMobile',
+    debounceMs: 400
+  });
+
+  // Ouverture automatique de la modale de création si demandée dans l'URL
+  const urlParams = new URLSearchParams(window.location.search);
+  if (urlParams.get('action') === 'create' || window.location.hash === '#create') {
+    const modalEl = document.getElementById('modal-espace-create');
+    if (modalEl) {
+      bootstrap.Modal.getOrCreateInstance(modalEl).show();
+    }
+  }
+
+  // Connexion du sélecteur cartographique immersif plein écran
+  const btnPickerZone = document.getElementById('btnOpenMapPickerZone');
+  if (btnPickerZone) {
+    btnPickerZone.addEventListener('click', function () {
+      const input = document.getElementById('id_geometrie_zone');
+      MapPicker.open({
+        title: "Emprise de la Subdivision",
+        targetInputId: "id_geometrie_zone",
+        statusElementId: "empriseStatusZone",
+        widgetElementId: "empriseWidgetZone",
+        buttonTextElementId: "empriseBtnTextZone",
+        initialGeoJson: input ? input.value : null
+      });
+    });
+  }
+});
+</script>
+{% endblock %}

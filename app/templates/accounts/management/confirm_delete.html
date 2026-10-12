@@ -1,0 +1,40 @@
+{% extends 'base.html' %}
+{% block title %}Supprimer l'utilisateur{% endblock %}
+
+{% block content %}
+<div class="del-box">
+
+  <div class="del-hdr">
+    <div class="del-icon">
+      <i class="bi bi-person-x-fill"></i>
+    </div>
+    <p class="del-title">Désactiver l'utilisateur</p>
+    <p class="del-sub">Suspension des accès à la plateforme GéoFoncier</p>
+  </div>
+
+  <div class="del-body">
+    <div class="del-name">
+      <i class="bi bi-person-circle text-secondary"></i>
+      {{ obj.get_full_name|default:obj.username }} (@{{ obj.username }})
+    </div>
+    <div class="del-warn">
+      <i class="bi bi-shield-exclamation text-danger"></i>
+      La désactivation de ce compte révoquera immédiatement tous les accès et sessions de l'utilisateur.
+      Conformément aux normes d'audit et de traçabilité, les données historiques, signalements et journaux d'activité seront préservés.
+    </div>
+  </div>
+
+  <div class="del-footer">
+    <a href="{% url 'accounts:users' %}" class="btn btn-outline-secondary">
+      <i class="bi bi-arrow-left me-1"></i>Annuler
+    </a>
+    <form method="post" style="display:inline;">
+      {% csrf_token %}
+      <button type="submit" class="btn btn-danger">
+        <i class="bi bi-person-dash me-1"></i>Confirmer la désactivation
+      </button>
+    </form>
+  </div>
+
+</div>
+{% endblock %}

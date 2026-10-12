@@ -41,8 +41,7 @@ templates.
 
 | Technologie | Rôle | Remarques |
 |---|---|---|
-| **PostgreSQL** | Base de données relationnelle | Base `uad_sig_db` par défaut |
-| **PostGIS** | Extension spatiale : stockage et calculs géométriques | Requise par GeoDjango |
+| **PostgreSQL + PostGIS** | Base de données relationnelle et extension spatiale | PostgreSQL 17 + PostGIS 3.5 sur Alpine (image officielle `postgis/postgis:17-3.5-alpine`) avec base `uad_sig_db` par défaut. Fournit les fichiers `postgis.control` indispensables à GeoDjango. |
 | **GDAL / OGR** | 3.11.4 (wheel `osgeo`). Lit les GeoTIFF, en extrait les métadonnées, génère les tuiles (`gdal2tiles`) | DLL chargées depuis `venv/Lib/site-packages/osgeo` (voir `config/settings.py`) |
 | **GEOS** | Opérations géométriques (union, intersection, aire) | Fourni avec le wheel GDAL |
 | **PROJ / pyproj** | 3.7. Changements de projection | `PROJ_DATA` forcé pour éviter le PROJ de PostgreSQL |
@@ -79,14 +78,14 @@ dans les templates.
 |---|---|---|---|
 | **Bootstrap** | 5.3.3 | Mise en page, composants, responsive (usage sur téléphone) | `templates/base.html` |
 | **Bootstrap Icons** | 1.11.3 | Icônes (y compris celles des catégories de signalement) | partout |
-| **Leaflet** | 1.9.4 | Carte interactive | `static/js/uad_sig.js`, cartes |
+| **Leaflet** | 1.9.4 | Carte interactive | `static/js/map.js`, `static/js/layers.js`, cartes |
 | **Leaflet.draw** | 1.0.4 | Dessin et modification de polygones dans les formulaires | `templates/foncier/*_form.html`, `templates/commune/form.html` |
 | **Chart.js** | 4.4.3 | Graphiques des tableaux de bord et statistiques | `templates/dashboard/`, `templates/pdu/statistiques.html` |
 | **hls.js** | 1.5.13 | Lecture du flux vidéo HLS dans le navigateur | `templates/drones/perspectives.html` |
-| **Cropper.js** | 1.6.2 | Recadrage de la photo de profil | `templates/accounts/profile.html` |
+| **Cropper.js** | 1.6.2 | Recadrage de la photo de profil | `templates/accounts/profile/profile.html` |
 | **Google Fonts** | Poppins, Roboto | Typographie | `templates/base.html` |
-| JS maison | — | Initialisation commune des cartes, fonds de plan, couches | `static/js/uad_sig.js` |
-| CSS maison | — | Charte graphique | `static/css/uad_sig.css` |
+| JS modulaire | — | Initialisation commune des cartes, fonds de plan, couches, recherche, charts | `static/js/geofoncier.js` et modules (`global.js`, `map.js`, `layers.js`, `search.js`, `charts.js`) |
+| CSS modulaire | — | Charte graphique et design system | `static/css/geofoncier.css` et modules (`global.css`, `components.css`, `forms.css`, `map.css`, `auth.css`, `drones.css`) |
 
 **Fonds de carte**
 

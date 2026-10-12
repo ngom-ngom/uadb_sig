@@ -1,0 +1,711 @@
+{% extends 'base.html' %}
+{% block title %}Gestion des Utilisateurs{% endblock %}
+{% block breadcrumb %}<li class="breadcrumb-item active">Utilisateurs</li>{% endblock %}
+
+{% block content %}
+
+<!-- ===== EN-TÊTE ===== -->
+<div class="page-header d-flex flex-wrap justify-content-between align-items-center gap-3 mb-4">
+  <div>
+    <div class="d-flex align-items-center gap-2 mb-1">
+      <span class="badge bg-primary-subtle text-primary border border-primary-subtle fw-semibold" style="font-size: 11px;">
+        <i class="bi bi-shield-check me-1"></i>Gouvernance RBAC
+      </span>
+      <span class="badge bg-light text-secondary border" style="font-size: 11px;">
+        {{ total_users }} utilisateur{{ total_users|pluralize }}
+      </span>
+    </div>
+    <h1 class="page-title mb-1"><i class="bi bi-people-fill text-primary me-2"></i>Gestion des Utilisateurs & Rôles</h1>
+    <p class="page-description text-muted mb-0">Gouvernance institutionnelle des comptes, habilitations décentralisées et délégations territoriales.</p>
+  </div>
+  <div class="d-flex align-items-center gap-2">
+    <button type="button" class="btn btn-outline-primary d-flex align-items-center gap-2 shadow-sm"
+      data-bs-toggle="modal" data-bs-target="#modalRolesPermissions">
+      <i class="bi bi-shield-lock-fill"></i>
+      <span>Gérer les Rôles</span>
+    </button>
+    <button type="button" class="btn btn-primary d-flex align-items-center gap-2 shadow-sm" data-bs-toggle="modal"
+      data-bs-target="#modalCreateUser">
+      <i class="bi bi-person-plus-fill"></i>
+      <span>Nouvel Utilisateur</span>
+    </button>
+  </div>
+</div>
+
+<!-- ===== KPI (Ruban horizontal scrollable à cartes fixes) ===== -->
+<div class="kpi-row-scroll">
+
+  <!-- 1. Total Utilisateurs (Bleu Primaire) -->
+  <div class="kpi-card kpi-card--primary">
+    <div class="kpi-card__header">
+      <span class="kpi-card__label">Total Utilisateurs</span>
+      <i class="bi bi-people kpi-card__icon"></i>
+    </div>
+    <div class="kpi-card__body">
+      <span class="kpi-card__value">{{ total_users }}</span>
+      <span class="kpi-card__badge kpi-card__badge--neutral">
+        Comptes
+      </span>
+    </div>
+  </div>
+
+  <!-- 2. Comptes Actifs (Vert Secondaire) -->
+  <div class="kpi-card kpi-card--secondary">
+    <div class="kpi-card__header">
+      <span class="kpi-card__label">Comptes Actifs</span>
+      <i class="bi bi-person-check kpi-card__icon"></i>
+    </div>
+    <div class="kpi-card__body">
+      <span class="kpi-card__value">{{ nb_actifs }}</span>
+      <span class="kpi-card__badge kpi-card__badge--success">
+        {{ nb_inactifs }} inactif{{ nb_inactifs|pluralize }}
+      </span>
+    </div>
+  </div>
+
+  <!-- 3. Administrateurs (Violet Gouvernance) -->
+  <div class="kpi-card kpi-card--purple">
+    <div class="kpi-card__header">
+      <span class="kpi-card__label">Administrateurs</span>
+      <i class="bi bi-shield-lock kpi-card__icon"></i>
+    </div>
+    <div class="kpi-card__body">
+      <span class="kpi-card__value">{{ nb_admins }}</span>
+      <span class="kpi-card__badge kpi-card__badge--neutral">
+        Accès complet
+      </span>
+    </div>
+  </div>
+
+  <!-- 4. Actifs ce mois (Cyan Info) -->
+  <div class="kpi-card kpi-card--info">
+    <div class="kpi-card__header">
+      <span class="kpi-card__label">Actifs Ce Mois</span>
+      <i class="bi bi-clock-history kpi-card__icon"></i>
+    </div>
+    <div class="kpi-card__body">
+      <span class="kpi-card__value">{{ nb_recents }}</span>
+      <span class="kpi-card__badge kpi-card__badge--info">
+        30 derniers jours
+      </span>
+    </div>
+  </div>
+
+</div>
+
+<!-- ===== BARRE DE FILTRES STICKY (Desktop & Tablette) ===== -->
+<div class="filter-bar-sticky d-none d-md-block">
+  <form method="get" class="d-flex align-items-center justify-content-between flex-wrap gap-2 m-0" id="filterUsersDesktop">
+    <div class="d-flex align-items-center gap-2 flex-wrap flex-grow-1">
+      
+      <!-- Champ de recherche épuré avec icône intégrée -->
+      <div class="filter-search-wrapper" style="max-width: 250px;">
+        <i class="bi bi-search filter-search-icon"></i>
+        <input type="text" name="q" class="form-control form-control-sm filter-search-input"
+               placeholder="Nom, prénom, email…" value="{{ q }}" autocomplete="off">
+        {% if q %}
+        <button type="button" class="filter-search-clear" title="Effacer la recherche">
+          <i class="bi bi-x"></i>
+        </button>
+        {% endif %}
+      </div>
+
+      <select name="role" class="form-select form-select-sm" style="width: 170px;">
+        <option value="">Tous les rôles</option>
+        {% for key, label in roles %}
+        <option value="{{ key }}" {% if role_filter == key %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+
+      <select name="statut" class="form-select form-select-sm" style="width: 130px;">
+        <option value="">Tous statuts</option>
+        <option value="actif" {% if statut_filter == 'actif' %}selected{% endif %}>Actif</option>
+        <option value="inactif" {% if statut_filter == 'inactif' %}selected{% endif %}>Inactif</option>
+      </select>
+
+      {% if q or role_filter or statut_filter %}
+      <a href="{% url 'accounts:users' %}" class="btn btn-sm btn-outline-secondary btn-filter-reset" title="Réinitialiser les filtres">
+        <i class="bi bi-arrow-counterclockwise me-1"></i>Réinitialiser
+      </a>
+      {% endif %}
+    </div>
+    <div class="text-muted small">
+      <strong class="text-dark">{{ page_obj.paginator.count }}</strong> résultat{{ page_obj.paginator.count|pluralize }}
+    </div>
+  </form>
+</div>
+
+<!-- ===== FAB MOBILE FILTRE (Bottom-Left) ===== -->
+<div class="fab-filter-mobile d-md-none">
+  <button type="button" class="btn btn-primary fab-filter-btn" data-bs-toggle="offcanvas" data-bs-target="#offcanvasUsersFilters" aria-label="Filtres">
+    <i class="bi bi-funnel-fill"></i>
+    {% if q or role_filter or statut_filter %}
+    <span class="badge-filter-count">!</span>
+    {% endif %}
+  </button>
+</div>
+
+<!-- ===== OFFCANVAS SLIDEOVER FILTRES (Mobile) ===== -->
+<div class="offcanvas offcanvas-bottom rounded-top-4 d-md-none" tabindex="-1" id="offcanvasUsersFilters" style="max-height: 80vh;">
+  <div class="offcanvas-header border-bottom">
+    <h5 class="offcanvas-title d-flex align-items-center gap-2 fs-6 fw-bold">
+      <i class="bi bi-funnel text-primary"></i> Filtrer les utilisateurs
+    </h5>
+    <button type="button" class="btn-close" data-bs-dismiss="offcanvas"></button>
+  </div>
+  <div class="offcanvas-body">
+    <form method="get" class="d-flex flex-column gap-3" id="filterUsersMobile">
+      <div>
+        <label class="form-label small fw-semibold text-muted">Recherche libre</label>
+        <div class="filter-search-wrapper w-100" style="max-width: 100%;">
+          <i class="bi bi-search filter-search-icon"></i>
+          <input type="text" name="q" class="form-control filter-search-input" placeholder="Nom, prénom, email…" value="{{ q }}">
+          {% if q %}
+          <button type="button" class="filter-search-clear" title="Effacer la recherche">
+            <i class="bi bi-x"></i>
+          </button>
+          {% endif %}
+        </div>
+      </div>
+      <div>
+        <label class="form-label small fw-semibold text-muted">Rôle RBAC</label>
+        <select name="role" class="form-select">
+          <option value="">Tous les rôles</option>
+          {% for key, label in roles %}
+          <option value="{{ key }}" {% if role_filter == key %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="form-label small fw-semibold text-muted">Statut</label>
+        <select name="statut" class="form-select">
+          <option value="">Tous statuts</option>
+          <option value="actif" {% if statut_filter == 'actif' %}selected{% endif %}>Actif</option>
+          <option value="inactif" {% if statut_filter == 'inactif' %}selected{% endif %}>Inactif</option>
+        </select>
+      </div>
+      <div class="d-flex gap-2 pt-2">
+        <button type="submit" class="btn btn-primary flex-grow-1">Appliquer</button>
+        {% if q or role_filter or statut_filter %}
+        <a href="{% url 'accounts:users' %}" class="btn btn-outline-secondary">Effacer</a>
+        {% endif %}
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ===== TABLE CARD ===== -->
+<div class="card border-0 shadow-sm rounded-4">
+  <div class="card-header bg-white d-flex align-items-center justify-content-between py-3 px-4 border-bottom">
+    <div class="fw-bold text-dark d-flex align-items-center gap-2">
+      <i class="bi bi-person-lines-fill text-primary"></i>
+      Répertoire des utilisateurs
+    </div>
+    <span class="badge bg-light text-secondary border">
+      Page {{ page_obj.number }} sur {{ page_obj.paginator.num_pages }}
+    </span>
+  </div>
+
+
+  <!-- Tableau -->
+  <div class="table-responsive">
+    <table class="table table-uad mb-0" id="table-users">
+      <thead>
+        <tr>
+          <th>Utilisateur</th>
+          <th>Email</th>
+          <th>Rôle</th>
+          <th>Territoires</th>
+          <th>Statut</th>
+          <th>Inscription</th>
+          <th>Dernière connexion</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for u in page_obj %}
+        <tr class="table-row-clickable" data-user-id="{{ u.pk }}">
+
+          <!-- Avatar + Nom -->
+          <td>
+            <div class="d-flex align-items-center gap-3">
+              <div class="u-av u-av-{{ u.role }}">
+                {% if u.photo %}
+                <img src="{{ u.photo.url }}" alt="{{ u.username }}">
+                {% else %}
+                {{ u.get_full_name|default:u.username|first|upper }}
+                {% endif %}
+              </div>
+              <div>
+                <div class="fw-semibold" style="font-size:13.5px; color:#1e293b;">
+                  {{ u.get_full_name|default:u.username }}
+                  {% if u.pk == request.user.pk %}
+                  <span class="you-badge">VOUS</span>
+                  {% endif %}
+                </div>
+                <div class="text-muted" style="font-size:11.5px;">@{{ u.username }}</div>
+              </div>
+            </div>
+
+            <!-- Métadonnées complètes pour le SlideOver et la Modale d'Édition -->
+            <script type="application/json" id="userData_{{ u.pk }}">
+              {
+                "id": {{ u.pk }},
+                "username": "{{ u.username|escapejs }}",
+                "first_name": "{{ u.first_name|escapejs }}",
+                "last_name": "{{ u.last_name|escapejs }}",
+                "full_name": "{{ u.get_full_name|default:u.username|escapejs }}",
+                "email": "{{ u.email|escapejs }}",
+                "telephone": "{{ u.telephone|default:''|escapejs }}",
+                "role": "{{ u.role }}",
+                "role_display": "{{ u.get_role_display|escapejs }}",
+                "is_active": {{ u.is_active|yesno:"true,false" }},
+                "is_superuser": {{ u.is_superuser|yesno:"true,false" }},
+                "acces_tous_territoires": {{ u.acces_tous_territoires|yesno:"true,false" }},
+                "must_change_password": {{ u.must_change_password|yesno:"true,false" }},
+                "date_joined": "{{ u.date_joined|date:'d/m/Y' }}",
+                "last_login": "{{ u.last_login|date:'d/m/Y H:i'|default:'Jamais connecté' }}",
+                "created_by": "{% if u.created_by %}{{ u.created_by.get_full_name|default:u.created_by.username|escapejs }}{% else %}Système Racine{% endif %}",
+                "photo_url": "{% if u.photo %}{{ u.photo.url }}{% endif %}",
+                "can_edit": {% if u.is_superuser or u.role == 'superuser' %}false{% elif is_super or u.role == 'standard' %}true{% else %}false{% endif %},
+                "can_delete": {% if u.is_superuser or u.role == 'superuser' or u.pk == request.user.pk %}false{% elif u.role == 'admin' and not is_super %}false{% else %}true{% endif %},
+                "update_url": "{% url 'accounts:user_update' u.pk %}",
+                "delete_url": "{% url 'accounts:user_delete' u.pk %}",
+                "activate_url": "{% url 'accounts:user_activate' u.pk %}",
+                "memberships": [
+                  {% for m in u.dossier_memberships.all %}
+                  {
+                    "dossier_id": "{{ m.dossier.id }}",
+                    "dossier_nom": "{{ m.dossier.nom|escapejs }}",
+                    "type_display": "{{ m.dossier.get_type_territoire_display|escapejs }}",
+                    "role": "{{ m.role }}",
+                    "role_display": "{{ m.get_role_display|escapejs }}"
+                  }{% if not forloop.last %},{% endif %}
+                  {% endfor %}
+                ]
+              }
+            </script>
+          </td>
+
+          <!-- Email -->
+          <td>
+            {% if u.email %}
+            <a href="mailto:{{ u.email }}" class="text-muted text-decoration-none" style="font-size:12.5px;">{{ u.email }}</a>
+            {% else %}
+            <span class="text-muted" style="font-size:12.5px;">—</span>
+            {% endif %}
+          </td>
+
+          <!-- Rôle -->
+          <td>
+            <span class="role-pill role-{{ u.role }}">
+              {% if u.role == 'superuser' %}
+              <i class="bi bi-shield-lock-fill" style="font-size:9px;"></i>
+              {% elif u.role == 'admin' %}
+              <i class="bi bi-shield-fill" style="font-size:9px;"></i>
+              {% else %}
+              <i class="bi bi-person-fill" style="font-size:10px;"></i>
+              {% endif %}
+              {{ u.get_role_display }}
+            </span>
+          </td>
+
+          <!-- Territoires affectés -->
+          <td>
+            {% if u.is_superuser or u.acces_tous_territoires %}
+            <span class="badge bg-success-subtle text-success border border-success-subtle"
+              title="Accès universel à l'ensemble des dossiers">
+              <i class="bi bi-globe2 me-1"></i>Tous (Universel)
+            </span>
+            {% else %}
+            {% with memberships=u.dossier_memberships.all %}
+            {% if not memberships %}
+            <span class="text-muted" style="font-size:12px; font-style:italic;">Aucun dossier</span>
+            {% elif memberships|length == 1 %}
+            {% with m=memberships.0 %}
+            <span class="badge bg-light text-dark border" title="{{ m.dossier.nom }} ({{ m.get_role_display }})">
+              <i class="bi bi-folder2-open text-primary me-1"></i>{{ m.dossier.nom|truncatechars:18 }}
+            </span>
+            {% endwith %}
+            {% else %}
+            <span class="badge bg-light text-dark border"
+              title="{% for m in memberships %}{{ m.dossier.nom }} ({{ m.get_role_display }}){% if not forloop.last %}&#10;{% endif %}{% endfor %}">
+              <i class="bi bi-folder-fill text-primary me-1"></i>{{ memberships|length }} territoires
+            </span>
+            {% endif %}
+            {% endwith %}
+            {% endif %}
+          </td>
+
+          <!-- Statut -->
+          <td>
+            {% if u.is_active %}
+            <span class="statut-actif">
+              <i class="bi bi-circle-fill" style="font-size:7px;"></i> Actif
+            </span>
+            {% else %}
+            <span class="statut-inactif">
+              <i class="bi bi-circle" style="font-size:7px;"></i> Inactif
+            </span>
+            {% endif %}
+          </td>
+
+          <!-- Date inscription -->
+          <td>
+            <span style="font-size:12.5px; color:#374151;">{{ u.date_joined|date:"d/m/Y" }}</span>
+          </td>
+
+          <!-- Dernière connexion -->
+          <td>
+            {% if u.last_login %}
+            {% now "Y-m-d" as today %}
+            <span
+              class="{% if u.last_login|timesince|slice:':5' == '0 min' or u.last_login|date:'Y-m-d' == today %}last-login-recent{% else %}last-login-old{% endif %}"
+              style="font-size:12px;" title="{{ u.last_login|date:'d/m/Y H:i' }}">
+              {{ u.last_login|date:"d/m/Y" }}
+            </span>
+            {% else %}
+            <span class="text-muted" style="font-size:12px; font-style:italic;">Jamais connecté</span>
+            {% endif %}
+          </td>
+
+        </tr>
+        {% empty %}
+        <tr>
+          <td colspan="7">
+            <div class="empty-state">
+              <i class="bi bi-person-slash"></i>
+              <h6>Aucun utilisateur trouvé</h6>
+              <p>{% if q %}Aucun résultat pour « {{ q }} »{% elif role_filter %}Aucun utilisateur avec ce rôle{% else
+                %}Aucun utilisateur enregistré{% endif %}.</p>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Pagination -->
+  {% if page_obj.has_other_pages %}
+  <div class="card-footer bg-transparent d-flex justify-content-between align-items-center py-3 px-4">
+    <small class="text-muted">
+      Page <strong>{{ page_obj.number }}</strong> / {{ page_obj.paginator.num_pages }}
+      &nbsp;·&nbsp; {{ page_obj.paginator.count }} utilisateur{{ page_obj.paginator.count|pluralize }}
+    </small>
+    <nav>
+      <ul class="pagination pagination-sm mb-0">
+        {% if page_obj.has_previous %}
+        <li class="page-item">
+          <a class="page-link"
+            href="?page={{ page_obj.previous_page_number }}&q={{ q }}&role={{ role_filter }}&statut={{ statut_filter }}">
+            <i class="bi bi-chevron-left" style="font-size:10px;"></i>
+          </a>
+        </li>
+        {% endif %}
+        {% for num in page_obj.paginator.page_range %}
+        <li class="page-item {% if page_obj.number == num %}active{% endif %}">
+          <a class="page-link" href="?page={{ num }}&q={{ q }}&role={{ role_filter }}&statut={{ statut_filter }}">{{ num }}</a>
+        </li>
+        {% endfor %}
+        {% if page_obj.has_next %}
+        <li class="page-item">
+          <a class="page-link"
+            href="?page={{ page_obj.next_page_number }}&q={{ q }}&role={{ role_filter }}&statut={{ statut_filter }}">
+            <i class="bi bi-chevron-right" style="font-size:10px;"></i>
+          </a>
+        </li>
+        {% endif %}
+      </ul>
+    </nav>
+  </div>
+  {% endif %}
+
+</div>
+
+{% include 'accounts/management/partials/modal_user_create.html' %}
+{% include 'accounts/management/partials/modal_user_edit.html' %}
+{% include 'accounts/management/partials/modal_roles_permissions.html' %}
+
+<!-- Formulaire caché pour CSRF dans les actions du SlideOver -->
+<form id="csrfTokenHolder" style="display:none;">{% csrf_token %}</form>
+
+<script src="/static/js/filter_manager.js"></script>
+<script>
+  document.addEventListener('DOMContentLoaded', function () {
+    const csrfToken = document.querySelector('#csrfTokenHolder [name=csrfmiddlewaretoken]')?.value || '';
+    const isSuperOperator = {{ is_super|yesno:"true,false" }};
+
+    // Initialisation du contrôleur réactif de filtres
+    FilterManager.init({
+      desktopFormSelector: '#filterUsersDesktop',
+      mobileFormSelector: '#filterUsersMobile',
+      debounceMs: 400
+    });
+
+    // Liaison de l'inspection SlideOver sur le tableau des utilisateurs
+    SlideOver.bindTable('#table-users', function (row) {
+      const userId = row.dataset.userId;
+      const scriptEl = document.getElementById('userData_' + userId);
+      if (!scriptEl) return null;
+
+      let u;
+      try {
+        u = JSON.parse(scriptEl.textContent);
+      } catch (e) {
+        console.error("Erreur de parsing des données utilisateur :", e);
+        return null;
+      }
+
+      // 1. Badge d'en-tête (Statut + Rôle)
+      let badgeHtml = `
+      <span class="role-pill role-${u.role} me-1">${u.role_display}</span>
+      <span class="${u.is_active ? 'statut-actif' : 'statut-inactif'}">
+        <i class="bi bi-circle${u.is_active ? '-fill' : ''}" style="font-size:7px;"></i> ${u.is_active ? 'Actif' : 'Inactif'}
+      </span>
+    `;
+
+      // Indication réservée EXCLUSIVEMENT au Superuser si le mot de passe n'a pas encore été modifié
+      if (isSuperOperator && u.must_change_password) {
+        badgeHtml += `
+        <span class="badge bg-warning text-dark py-1 px-2 border ms-1" style="font-size:10.5px;" title="Mot de passe temporaire : renouvellement personnel obligatoire en attente">
+          <i class="bi bi-key-fill me-1"></i>Mot de passe non changé
+        </span>
+      `;
+      }
+
+      // 2. Corps du SlideOver
+      let bodyHtml = `
+      <!-- Identité & Avatar -->
+      <div class="d-flex align-items-center gap-3 p-3 mb-3 rounded-3" style="background:#f8fafc; border:1px solid #e2e8f0;">
+        <div class="u-av u-av-${u.role}" style="width:48px; height:48px; font-size:18px;">
+          ${u.photo_url ? `<img src="${u.photo_url}" alt="${u.username}">` : (u.first_name ? u.first_name[0].toUpperCase() : u.username[0].toUpperCase())}
+        </div>
+        <div>
+          <h5 class="mb-0 fw-bold text-dark">${u.full_name}</h5>
+          <div class="text-muted small">@${u.username} ${u.is_superuser ? '<span class="badge bg-danger ms-1">Super Administrateur</span>' : ''}</div>
+        </div>
+      </div>
+    `;
+
+      // Avertissement contextuel de sécurité visible EXCLUSIVEMENT par le Superuser
+      if (isSuperOperator && u.must_change_password) {
+        bodyHtml += `
+        <div class="alert alert-warning border d-flex align-items-center gap-2 py-2 px-3 rounded-3 mb-3" style="background:#fffbeb; border-color:#fde68a !important; color:#92400e; font-size:12px;">
+          <i class="bi bi-shield-exclamation fs-5 flex-shrink-0 text-warning"></i>
+          <div>
+            <strong>Gouvernance Superuser :</strong> Ce compte possède un mot de passe temporaire initial ou réinitialisé. L'utilisateur devra obligatoirement définir son mot de passe secret lors de sa prochaine connexion.
+          </div>
+        </div>
+      `;
+      }
+
+      bodyHtml += `
+      <!-- Coordonnées -->
+      <div class="mb-4">
+        <h6 class="text-uppercase text-muted fw-bold" style="font-size:11px; letter-spacing:0.05em; margin-bottom:10px;">
+          <i class="bi bi-envelope-at me-1"></i>Coordonnées
+        </h6>
+        <div class="p-3 rounded-3 border bg-white">
+          <div class="d-flex justify-content-between py-1 border-bottom">
+            <span class="text-muted small">Email professionnel :</span>
+            <span class="small fw-semibold text-dark"><a href="mailto:${u.email}" class="text-decoration-none text-dark">${u.email}</a></span>
+          </div>
+          <div class="d-flex justify-content-between py-1 pt-2">
+            <span class="text-muted small">Téléphone :</span>
+            <span class="small fw-semibold text-dark">${u.telephone || '<span class="text-muted fst-italic">Non renseigné</span>'}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Traçabilité & Gouvernance -->
+      <div class="mb-4">
+        <h6 class="text-uppercase text-muted fw-bold" style="font-size:11px; letter-spacing:0.05em; margin-bottom:10px;">
+          <i class="bi bi-clock-history me-1"></i>Traçabilité & Mandat
+        </h6>
+        <div class="p-3 rounded-3 border bg-white">
+          <div class="d-flex justify-content-between py-1 border-bottom">
+            <span class="text-muted small">Créé par :</span>
+            <span class="small fw-semibold text-dark">${u.created_by}</span>
+          </div>
+          <div class="d-flex justify-content-between py-1 border-bottom">
+            <span class="text-muted small">Date d'inscription :</span>
+            <span class="small fw-semibold text-dark">${u.date_joined}</span>
+          </div>
+          <div class="d-flex justify-content-between py-1 pt-2">
+            <span class="text-muted small">Dernière connexion :</span>
+            <span class="small fw-semibold text-dark">${u.last_login}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Territoires d'affectation -->
+      <div class="mb-3">
+        <h6 class="text-uppercase text-muted fw-bold" style="font-size:11px; letter-spacing:0.05em; margin-bottom:10px;">
+          <i class="bi bi-folder-symlink me-1"></i>Périmètre Territorial
+        </h6>
+    `;
+
+      if (u.acces_tous_territoires || u.is_superuser) {
+        bodyHtml += `
+        <div class="alert alert-success border d-flex align-items-center gap-3 py-2 px-3 rounded-3 mb-0">
+          <i class="bi bi-globe2 fs-4 text-success"></i>
+          <div>
+            <strong class="small text-dark">Accès Universel Actif</strong>
+            <div class="text-muted" style="font-size:11.5px;">Cet utilisateur a accès à la totalité des dossiers territoriaux (actuels et futurs).</div>
+          </div>
+        </div>
+      `;
+      } else if (u.memberships && u.memberships.length > 0) {
+        bodyHtml += `<div class="d-flex flex-column gap-2">`;
+        u.memberships.forEach(m => {
+          bodyHtml += `
+          <div class="p-2 px-3 rounded-3 border bg-white d-flex align-items-center justify-content-between">
+            <div>
+              <div class="fw-semibold small text-dark"><i class="bi bi-folder2-open text-primary me-1"></i>${m.dossier_nom}</div>
+              <span class="badge bg-light text-secondary border" style="font-size:10px;">${m.type_display}</span>
+            </div>
+            <span class="badge bg-primary-subtle text-primary border border-primary-subtle">${m.role_display}</span>
+          </div>
+        `;
+        });
+        bodyHtml += `</div>`;
+      } else {
+        bodyHtml += `
+        <div class="p-3 rounded-3 border bg-light text-muted small text-center">
+          <i class="bi bi-folder-x fs-4 d-block mb-1 text-secondary"></i>
+          Aucun territoire affecté pour le moment (compte sans espace de travail).
+        </div>
+      `;
+      }
+
+      bodyHtml += `</div>`;
+
+      // 3. Pied de page (Actions contextuelles)
+      let footerHtml = `
+      <button type="button" class="btn btn-outline-secondary btn-sm px-3" onclick="SlideOver.close()">Fermer</button>
+      <div class="d-flex gap-2">
+    `;
+
+      if (u.can_delete) {
+        if (u.is_active) {
+          footerHtml += `
+          <form action="${u.delete_url}" method="POST" style="display:inline;" onsubmit="return confirm('Désactiver le compte de ${u.full_name} (@${u.username}) ?');">
+            <input type="hidden" name="csrfmiddlewaretoken" value="${csrfToken}">
+            <button type="submit" class="btn btn-outline-danger btn-sm">
+              <i class="bi bi-person-x me-1"></i>Désactiver
+            </button>
+          </form>
+        `;
+        } else {
+          footerHtml += `
+          <form action="${u.activate_url}" method="POST" style="display:inline;" onsubmit="return confirm('Réactiver le compte de ${u.full_name} (@${u.username}) ?');">
+            <input type="hidden" name="csrfmiddlewaretoken" value="${csrfToken}">
+            <button type="submit" class="btn btn-outline-success btn-sm">
+              <i class="bi bi-person-check me-1"></i>Réactiver
+            </button>
+          </form>
+        `;
+        }
+      }
+
+      if (u.can_edit) {
+        footerHtml += `
+        <button type="button" class="btn btn-primary btn-sm px-3" onclick="openEditUserModal(${u.id})">
+          <i class="bi bi-pencil-square me-1"></i>Modifier
+        </button>
+      `;
+      } else if (!u.can_delete) {
+        footerHtml += `
+        <span class="badge bg-secondary-subtle text-secondary py-2 px-3 border border-secondary-subtle d-inline-flex align-items-center gap-1" style="font-size:11px;">
+          <i class="bi bi-shield-lock-fill text-warning"></i>Compte Super Administrateur Immuable
+        </span>
+      `;
+      }
+
+      footerHtml += `</div>`;
+
+      return {
+        title: u.full_name,
+        badgeHtml: badgeHtml,
+        bodyHtml: bodyHtml,
+        footerHtml: footerHtml
+      };
+    });
+  });
+
+  // Ouverture et préremplissage dynamique de la Modale d'Édition
+  function openEditUserModal(userId) {
+    SlideOver.close();
+
+    const scriptEl = document.getElementById('userData_' + userId);
+    if (!scriptEl) return;
+
+    const u = JSON.parse(scriptEl.textContent);
+    if (u.is_superuser || u.role === 'superuser') {
+      return;
+    }
+
+    const form = document.getElementById('formEditUser');
+    if (!form) return;
+
+    form.action = u.update_url;
+
+    // 1. Remplissage des champs d'identité
+    document.getElementById('edit_first_name').value = u.first_name;
+    document.getElementById('edit_last_name').value = u.last_name;
+    document.getElementById('edit_email').value = u.email;
+    document.getElementById('edit_telephone').value = u.telephone || '';
+    document.getElementById('edit_is_active').checked = u.is_active;
+
+    // 2. Type de compte
+    setEditAccountType(u.role);
+    const radioStd = document.getElementById('edit_account_type_standard');
+    const radioAdm = document.getElementById('edit_account_type_admin');
+    if (radioStd && radioAdm) {
+      if (u.role === 'admin') {
+        radioAdm.checked = true;
+      } else {
+        radioStd.checked = true;
+      }
+    }
+
+    // 3. Affectation territoriale
+    const isAll = u.acces_tous_territoires || u.is_superuser;
+    setEditAffMode(isAll ? 'all' : 'selection');
+    const affAllRadio = document.getElementById('edit_affectation_all');
+    const affSelRadio = document.getElementById('edit_affectation_selection');
+    if (affAllRadio && affSelRadio) {
+      affAllRadio.checked = isAll;
+      affSelRadio.checked = !isAll;
+    }
+
+    // Cocher les dossiers assignés
+    const assignedDossierIds = (u.memberships || []).map(m => m.dossier_id);
+    document.querySelectorAll('.edit-territory-cb').forEach(cb => {
+      cb.checked = assignedDossierIds.includes(cb.value);
+      handleEditTerritoryCheck(cb);
+    });
+
+    // Rôle local
+    const currentRole = (u.memberships && u.memberships.length > 0) ? u.memberships[0].role : (u.role === 'admin' ? 'admin' : 'operateur');
+    setEditDossierRole(currentRole);
+    const roleOpRadio = document.getElementById('edit_role_op');
+    const roleObsRadio = document.getElementById('edit_role_obs');
+    if (roleOpRadio && roleObsRadio) {
+      roleOpRadio.checked = (currentRole === 'operateur');
+      roleObsRadio.checked = (currentRole === 'observateur');
+    }
+
+    // Vider les champs mot de passe
+    document.getElementById('edit_password').value = '';
+    document.getElementById('edit_confirm_password').value = '';
+
+    // Ouvrir la modale Bootstrap
+    const modalEl = document.getElementById('modalEditUser');
+    if (modalEl) {
+      const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+      modal.show();
+    }
+  }
+</script>
+{% endblock %}
