@@ -30,6 +30,8 @@ env/
 .env
 .env.local
 .env.dev
+.env.dev.*
+.env.old
 .env.prod.local
 *.env.local
 
